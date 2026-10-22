@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Tesoria brand palette, tomada del logo */
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --color-brand: #f0392b;        /* rojo principal */
+  --color-brand-dark: #c80f14;   /* rojo oscuro: hover y alertas */
+  --color-growth: #22b455;       /* green for text and savings */
+  --color-growth-light: #65eb62; /* verde del logo, acentos */
+  --color-ink: #161f2b;          /* azul marino del logo */
+  --color-ink-soft: #2b3646;
+  --color-canvas: #f5f6f9;       /* fondo de la app */
+  --color-surface: #ffffff;
+  --color-line: #e4e7ee;
+  --color-muted: #6b7385;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas text-ink antialiased;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand;
+  }
+}
