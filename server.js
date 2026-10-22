@@ -4,6 +4,8 @@ import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import path from 'path';
@@ -15,7 +17,9 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 const DATABASE_URL = process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL;
 
 if (!DATABASE_URL) throw new Error('DATABASE_URL is not set');
-if (IS_PROD && !process.env.JWT_SECRET) throw new Error('JWT_SECRET is required in production');
+if (IS_PROD && (process.env.JWT_SECRET || '').length < 32) {
+  throw new Error('JWT_SECRET must be at least 32 characters in production');
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-secret';
 
 const MAX_MONTHS = 12;
@@ -51,7 +55,8 @@ async function sendCode(email, code, purpose) {
   const intro = isVerify ? 'Use this code to verify your account:' : 'Use this code to reset your password:';
 
   if (!transporter) {
-    // Development fallback: no SMTP configured, so print the code in the terminal
+    if (IS_PROD) throw new Error('Email is not configured on the server');
+    // Development only: print the code in the terminal when SMTP is not set up
     console.log(`[dev] ${purpose} code for ${email}: ${code}`);
     return;
   }
@@ -192,11 +197,13 @@ async function checkCode(email, purpose, code) {
 
 // ---------- Input helpers ----------
 const clean = v => String(v ?? '').trim();
+// Removes control characters and angle brackets so stored text can never look like markup
+const stripMarkup = s => s.replace(/[\u0000-\u001F\u007F<>]/g, '');
 
 function parseTx(body) {
   const bucket = body.bucket;
-  const description = clean(body.description).slice(0, 100);
-  const category = clean(body.category).slice(0, 40) || 'General';
+  const description = stripMarkup(clean(body.description)).slice(0, 100);
+  const category = stripMarkup(clean(body.category)).slice(0, 40) || 'General';
   const amount = Number(body.amount);
   if (!BUCKETS.includes(bucket) || !description || !(amount > 0)) return null;
   return { bucket, description, category, amount };
@@ -204,13 +211,32 @@ function parseTx(body) {
 
 // ---------- App ----------
 const app = express();
-app.use(express.json());
+app.disable('x-powered-by');
+app.set('trust proxy', 1); // Render runs the app behind a proxy
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"], // Recharts sets inline styles
+      imgSrc: ["'self'", 'data:'],
+      fontSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+app.use(express.json({ limit: '10kb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'client', 'dist')));
 
 function auth(req, res, next) {
   try {
-    req.user = jwt.verify(req.cookies.token, JWT_SECRET);
+    req.user = jwt.verify(req.cookies.token, JWT_SECRET, { algorithms: ['HS256'] });
     next();
   } catch {
     res.status(401).json({ error: 'Not authorized' });
@@ -241,6 +267,25 @@ function sendToken(res, id, username) {
 }
 
 // ---------- Auth ----------
+// Brute-force protection: at most 20 auth attempts per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Try again in 15 minutes.' },
+});
+// Code spam protection: at most 10 code requests per hour per IP
+const codeLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many code requests. Try again later.' },
+});
+app.use('/api/auth', authLimiter);
+app.use(['/api/auth/resend', '/api/auth/forgot'], codeLimiter);
+
 
 // Creates an unverified account and emails a verification code
 app.post('/api/auth/register', async (req, res) => {
@@ -248,9 +293,13 @@ app.post('/api/auth/register', async (req, res) => {
   const email = clean(req.body.email).toLowerCase();
   const password = String(req.body.password || '');
 
-  if (username.length < 3) return res.status(400).json({ error: 'Username must be at least 3 characters' });
+  if (!/^[a-z0-9_.-]{3,30}$/.test(username)) {
+    return res.status(400).json({ error: 'Username: 3-30 characters (letters, numbers, . _ -)' });
+  }
   if (!EMAIL_RE.test(email) || email.length > 254) return res.status(400).json({ error: 'Enter a valid email address' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  // bcrypt only uses the first 72 bytes, so longer passwords would be silently truncated
+  if (Buffer.byteLength(password) > 72) return res.status(400).json({ error: 'Password must be at most 72 bytes' });
 
   const { rows: taken } = await pool.query(
     'SELECT 1 FROM users WHERE (email = $1 OR username = $2) AND email_verified = true',
@@ -353,6 +402,8 @@ app.post('/api/auth/reset', async (req, res) => {
 
   if (!CODE_RE.test(code)) return res.status(400).json({ error: 'Enter the 6-digit code' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  // bcrypt only uses the first 72 bytes, so longer passwords would be silently truncated
+  if (Buffer.byteLength(password) > 72) return res.status(400).json({ error: 'Password must be at most 72 bytes' });
   if (!(await checkCode(email, 'reset', code))) {
     return res.status(400).json({ error: 'Invalid or expired code' });
   }

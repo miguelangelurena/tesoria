@@ -1,16 +1,42 @@
 import Brand from './Brand';
 import Footer from './Footer';
 
+// Simple line icons (stroke-based, inherit the brand color)
+const ICONS = {
+  rule: (
+    <>
+      <path d="M21 12A9 9 0 1 1 12 3v9h9Z" />
+      <path d="M15 3.5A9 9 0 0 1 20.5 9H15V3.5Z" />
+    </>
+  ),
+  chart: (
+    <>
+      <path d="M3 3v18h18" />
+      <path d="m7 15 4-4 3 3 5-6" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </>
+  ),
+};
+
 const FEATURES = [
   {
+    icon: 'rule',
     title: 'The 50/30/20 rule, built in',
     text: 'Your targets for needs, wants and savings update automatically as soon as you enter your income.',
   },
   {
+    icon: 'chart',
     title: 'Charts that update live',
     text: 'Compare each month with your targets and follow your spending trends over the last 12 months.',
   },
   {
+    icon: 'download',
     title: 'Export your data anytime',
     text: 'Download a CSV of your last 12 months and open it in Excel or Google Sheets.',
   },
@@ -23,9 +49,9 @@ const STEPS = [
 ];
 
 const BUTTON_PRIMARY =
-  'rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark';
+  'shrink-0 rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark sm:px-5';
 const BUTTON_GHOST =
-  'rounded-lg px-4 py-2 text-sm font-medium text-ink-soft transition hover:bg-ink/5';
+  'shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-ink-soft transition hover:bg-ink/5 sm:px-4';
 
 // Demo budget shown in the hero card (static, for illustration)
 const DEMO = [
@@ -38,13 +64,13 @@ export default function Landing({ onStart }) {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-10 border-b border-line/70 bg-canvas/85 backdrop-blur">
-        <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <nav className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-3 sm:gap-4 sm:px-6">
           <Brand variant="light" />
           <div className="hidden items-center gap-6 text-sm font-medium text-ink-soft md:flex">
             <a href="#features" className="hover:text-brand">Features</a>
             <a href="#how-it-works" className="hover:text-brand">How it works</a>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <button type="button" onClick={() => onStart('login')} className={BUTTON_GHOST}>Sign in</button>
             <button type="button" onClick={() => onStart('register')} className={BUTTON_PRIMARY}>Get started</button>
           </div>
@@ -65,13 +91,13 @@ export default function Landing({ onStart }) {
               Tesoria splits your income with the 50/30/20 rule and shows your progress in
               real-time charts. No accounting knowledge needed.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <button type="button" onClick={() => onStart('register')}
-                className="rounded-lg bg-brand px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                className="rounded-lg bg-brand px-6 py-3 text-center text-base font-semibold text-white shadow-sm transition hover:bg-brand-dark">
                 Start for free
               </button>
               <button type="button" onClick={() => onStart('login')}
-                className="rounded-lg border border-line bg-surface px-6 py-3 text-base font-semibold text-ink transition hover:border-ink/30">
+                className="rounded-lg border border-line bg-surface px-6 py-3 text-center text-base font-semibold text-ink transition hover:border-ink/30">
                 I already have an account
               </button>
             </div>
@@ -80,7 +106,7 @@ export default function Landing({ onStart }) {
 
           {/* Demo card */}
           <div className="rounded-2xl bg-surface p-6 shadow-xl ring-1 ring-line">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <p className="font-semibold">This month</p>
               <p className="text-sm text-muted">Income <span className="font-semibold text-ink">$3,000.00</span></p>
             </div>
@@ -89,7 +115,7 @@ export default function Landing({ onStart }) {
                 const pct = Math.round((d.spent / d.target) * 100);
                 return (
                   <div key={d.label}>
-                    <div className="mb-1.5 flex justify-between text-sm">
+                    <div className="mb-1.5 flex justify-between gap-2 text-sm">
                       <span className="font-medium" style={{ color: d.color }}>{d.label}</span>
                       <span className="text-muted">${d.spent.toLocaleString('en-US')} / ${d.target.toLocaleString('en-US')}</span>
                     </div>
@@ -113,7 +139,12 @@ export default function Landing({ onStart }) {
             <div className="mt-10 grid gap-6 md:grid-cols-3">
               {FEATURES.map((f) => (
                 <div key={f.title} className="rounded-2xl bg-canvas p-6 ring-1 ring-line">
-                  <div className="mb-4 h-10 w-10 rounded-lg bg-brand" aria-hidden="true" />
+                  <span className="mb-4 grid h-11 w-11 place-items-center rounded-xl bg-brand/10 text-brand-dark">
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor"
+                      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      {ICONS[f.icon]}
+                    </svg>
+                  </span>
                   <h3 className="font-semibold">{f.title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-ink-soft">{f.text}</p>
                 </div>
