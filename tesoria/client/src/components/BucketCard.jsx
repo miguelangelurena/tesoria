@@ -1,0 +1,56 @@
+import { BUCKETS, OVER_COLOR, money } from '../constants';
+
+export default function BucketCard({ bucketKey, income, spent, transactions, onEdit, onDelete }) {
+  const b = BUCKETS[bucketKey];
+  const target = (income * b.pct) / 100;
+  const pct = target > 0 ? (spent / target) * 100 : 0;
+  const over = target > 0 && spent > target;
+  const items = transactions.filter((t) => t.bucket === bucketKey);
+
+  return (
+    <div className="flex flex-col rounded-2xl bg-surface p-5 shadow-sm ring-1 ring-line">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="font-semibold" style={{ color: b.color }}>{b.label}</h2>
+          <p className="text-xs text-muted">{b.pct}% · {b.hint}</p>
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${over ? 'bg-brand/10 text-brand-dark' : 'bg-canvas text-muted'}`}>
+          {target > 0 ? `${Math.round(pct)}% used` : 'No income yet'}
+        </span>
+      </div>
+
+      <div className="mt-4 flex justify-between gap-2 text-sm">
+        <span className="text-muted">Target <strong className="text-ink">{money(target)}</strong></span>
+        <span className="text-muted">
+          Spent <strong style={over ? { color: OVER_COLOR } : undefined} className={over ? '' : 'text-ink'}>{money(spent)}</strong>
+        </span>
+      </div>
+
+      <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-canvas" role="progressbar"
+        aria-valuenow={Math.min(Math.round(pct), 100)} aria-valuemin={0} aria-valuemax={100}>
+        <div className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${Math.min(pct, 100)}%`, background: over ? OVER_COLOR : b.color }} />
+      </div>
+
+      <ul className="mt-4 flex-1 divide-y divide-line">
+        {items.length === 0 && <li className="py-3 text-sm text-muted">No transactions yet</li>}
+        {items.map((t) => (
+          <li key={t.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2.5 text-sm">
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium">{t.description}</p>
+              <p className="text-xs text-muted">{t.category}</p>
+            </div>
+            <div className="flex items-center gap-3 whitespace-nowrap">
+              <span className="font-semibold">{money(t.amount)}</span>
+              <button onClick={() => onEdit(t)} className="font-medium text-ink-soft hover:text-brand hover:underline">
+                Edit
+              </button>
+              <button onClick={() => onDelete(t.id)} aria-label="Delete transaction"
+                className="text-muted hover:text-brand-dark">✕</button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

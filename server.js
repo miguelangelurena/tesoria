@@ -6,7 +6,6 @@ import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -39,41 +38,106 @@ const pool = new pg.Pool({
   max: 5,
 });
 
-// ---------- Email ----------
-const transporter = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: Number(process.env.SMTP_PORT) === 465,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    })
-  : null;
+// ---------- Email (Brevo HTTPS API) ----------
+// Render blocks outbound SMTP on free instances, so email is sent over HTTPS instead.
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const MAIL_FROM_EMAIL = process.env.MAIL_FROM_EMAIL;
+const MAIL_FROM_NAME = process.env.MAIL_FROM_NAME || 'Tesoria';
+
+// Error whose message can be shown to the user
+function expose(message) {
+  const e = new Error(message);
+  e.expose = true;
+  return e;
+}
+
+// Shared HTML template for verification and reset emails.
+// Uses tables and inline styles so it renders the same in Gmail, Outlook and Apple Mail.
+const SITE_URL = process.env.SITE_URL || 'https://tesoria.onrender.com';
+
+function buildEmailHtml({ heading, intro, code, footerNote }) {
+  return `<!doctype html>
+<html>
+<body style="margin:0;padding:0;background:#f5f6f9;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#161f2b;">
+  <span style="display:none;max-height:0;overflow:hidden;opacity:0;">${heading}. Your code expires in 10 minutes.</span>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6f9;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;border:1px solid #e4e7ee;">
+        <tr><td style="padding:28px 32px 0 32px;">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="vertical-align:middle;padding-right:10px;"><img src="${SITE_URL}/icon-192.png" width="32" height="32" alt="" style="display:block;border:0;"></td>
+            <td style="vertical-align:middle;font-size:18px;letter-spacing:3px;font-weight:500;color:#f0392b;">TE<span style="color:#65eb62;">$</span>ORIA</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:24px 32px 8px 32px;">
+          <h1 style="margin:0;font-size:22px;line-height:1.3;color:#161f2b;">${heading}</h1>
+          <p style="margin:12px 0 0 0;font-size:15px;line-height:1.6;color:#2b3646;">${intro}</p>
+        </td></tr>
+        <tr><td style="padding:20px 32px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td align="center" style="background:#f5f6f9;border:1px solid #e4e7ee;border-radius:12px;padding:20px;">
+              <span style="font-family:'SFMono-Regular',Consolas,'Courier New',monospace;font-size:32px;font-weight:700;letter-spacing:10px;color:#161f2b;">${code}</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:0 32px 28px 32px;">
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#6b7385;">This code expires in <strong style="color:#161f2b;">10 minutes</strong>. Never share it with anyone, including Tesoria staff.</p>
+          <p style="margin:12px 0 0 0;font-size:13px;line-height:1.6;color:#6b7385;">${footerNote}</p>
+        </td></tr>
+      </table>
+      <p style="margin:20px 0 0 0;font-size:12px;color:#6b7385;">&copy; Tesoria &middot; Coded by Miguel U.</p>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
 
 async function sendCode(email, code, purpose) {
   const isVerify = purpose === 'verify';
   const subject = isVerify ? 'Your Tesoria verification code' : 'Your Tesoria password reset code';
   const intro = isVerify ? 'Use this code to verify your account:' : 'Use this code to reset your password:';
 
-  if (!transporter) {
-    if (IS_PROD) throw new Error('Email is not configured on the server');
-    // Development only: print the code in the terminal when SMTP is not set up
+  if (!BREVO_API_KEY || !MAIL_FROM_EMAIL) {
+    if (IS_PROD) throw expose('Email is not configured on the server');
+    // Development only: print the code in the terminal
     console.log(`[dev] ${purpose} code for ${email}: ${code}`);
     return;
   }
 
-  await transporter.sendMail({
-    from: process.env.MAIL_FROM || process.env.SMTP_USER,
-    to: email,
-    subject,
-    text: `${intro}\n\n${code}\n\nThe code expires in 10 minutes. If you did not request it, you can ignore this email.`,
-    html: `
-      <div style="font-family:system-ui,sans-serif;color:#161f2b">
-        <h2 style="color:#f0392b;margin:0 0 12px">Tesoria</h2>
-        <p>${intro}</p>
-        <p style="font-size:28px;font-weight:700;letter-spacing:6px;margin:16px 0">${code}</p>
-        <p style="color:#6b7385;font-size:13px">The code expires in 10 minutes. If you did not request it, you can ignore this email.</p>
-      </div>`,
-  });
+  let res;
+  try {
+    res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: MAIL_FROM_NAME, email: MAIL_FROM_EMAIL },
+        to: [{ email }],
+        subject,
+        textContent: `${intro}\n\n${code}\n\nThe code expires in 10 minutes. If you did not request it, you can ignore this email.`,
+        htmlContent: buildEmailHtml({
+          heading: isVerify ? 'Verify your email' : 'Reset your password',
+          intro,
+          code,
+          footerNote: isVerify
+            ? "If you didn't create a Tesoria account, you can safely ignore this email."
+            : "If you didn't request a password reset, you can ignore this email. Your password will not change.",
+        }),
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (err) {
+    console.error('Email request failed:', err.message);
+    throw expose('We could not send the email. Please try again in a moment.');
+  }
+
+  if (!res.ok) {
+    console.error('Brevo error:', res.status, await res.text().catch(() => ''));
+    throw expose('We could not send the email. Please try again in a moment.');
+  }
 }
 
 // ---------- Database schema ----------
@@ -546,7 +610,7 @@ app.get('/api/export', auth, async (req, res) => {
 // Catches errors from async route handlers (Express 5 forwards them here)
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({ error: err.expose ? err.message : 'Internal server error' });
 });
 
 // ---------- Startup ----------
