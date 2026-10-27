@@ -129,8 +129,8 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
     <div className="flex min-h-dvh flex-col">
     <main className="grid flex-1 place-items-center p-4">
       <div className="w-full max-w-sm">
-        <button type="button" onClick={onBack} className="mb-4 text-sm font-medium text-muted hover:text-ink">
-          ← Back to home
+        <button type="button" onClick={onBack} className="cursor-pointer mb-4 text-sm font-medium text-muted hover:text-ink">
+          Back to home
         </button>
         <div className="rounded-2xl bg-surface p-6 shadow-sm ring-1 ring-line sm:p-8">
           <div className="flex justify-center">
@@ -202,7 +202,7 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
             {error && <p role="alert" className="text-sm text-brand-dark">{error}</p>}
 
             <button disabled={loading}
-              className="w-full rounded-lg bg-brand py-2.5 font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
+              className="cursor-pointer w-full rounded-lg bg-brand py-2.5 font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
               {loading ? 'Please wait...' : SUBMIT_LABELS[view]}
             </button>
           </form>
@@ -210,16 +210,16 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
           <div className="mt-4 space-y-2 text-center text-sm">
             {view === VIEW.LOGIN && (
               <>
-                <button type="button" onClick={() => show(VIEW.FORGOT)} className="block w-full font-medium text-brand hover:underline">
+                <button type="button" onClick={() => show(VIEW.FORGOT)} className="cursor-pointer block w-full font-medium text-brand hover:underline">
                   Forgot password?
                 </button>
-                <button type="button" onClick={() => show(VIEW.REGISTER)} className="block w-full font-medium text-brand hover:underline">
+                <button type="button" onClick={() => show(VIEW.REGISTER)} className="cursor-pointer block w-full font-medium text-brand hover:underline">
                   No account? Sign up
                 </button>
               </>
             )}
             {view === VIEW.REGISTER && (
-              <button type="button" onClick={() => show(VIEW.LOGIN)} className="block w-full font-medium text-brand hover:underline">
+              <button type="button" onClick={() => show(VIEW.LOGIN)} className="cursor-pointer block w-full font-medium text-brand hover:underline">
                 Already have an account? Sign in
               </button>
             )}
@@ -229,7 +229,7 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
                   className="block w-full font-medium text-brand hover:underline disabled:text-muted disabled:no-underline">
                   {resendLabel}
                 </button>
-                <button type="button" onClick={() => show(VIEW.REGISTER)} className="block w-full text-muted hover:text-ink">
+                <button type="button" onClick={() => show(VIEW.REGISTER)} className="cursor-pointer block w-full text-muted hover:text-ink">
                   Wrong email? Start over
                 </button>
               </>
@@ -242,7 +242,7 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
                     {resendLabel}
                   </button>
                 )}
-                <button type="button" onClick={() => show(VIEW.LOGIN)} className="block w-full text-muted hover:text-ink">
+                <button type="button" onClick={() => show(VIEW.LOGIN)} className="cursor-pointer block w-full text-muted hover:text-ink">
                   Back to sign in
                 </button>
               </>
