@@ -185,7 +185,7 @@ export default function Dashboard({ user, onLogout }) {
               Export CSV
             </a>
             <button onClick={logout}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white">
+              className="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white">
               Sign out
             </button>
           </div>

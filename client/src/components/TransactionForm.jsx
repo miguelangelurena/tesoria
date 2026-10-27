@@ -3,7 +3,7 @@ import { BUCKETS, KEYS } from '../constants';
 
 const empty = { bucket: 'needs', description: '', category: '', amount: '' };
 const input =
-  'w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20';
+  'cursor-pointer w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20';
 
 export default function TransactionForm({ editing, categories, onSubmit, onCancel }) {
   const [form, setForm] = useState(empty);
@@ -82,7 +82,7 @@ export default function TransactionForm({ editing, categories, onSubmit, onCance
           value={form.category} onChange={set('category')} />
         <input aria-label="Amount" className={input} type="number" min="0.01" step="0.01" inputMode="decimal"
           placeholder="Amount" value={form.amount} onChange={set('amount')} required />
-        <button className="rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark sm:col-span-2 lg:col-span-1">
+        <button className="cursor-pointer rounded-lg bg-brand px-5 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark sm:col-span-2 lg:col-span-1">
           {editing ? 'Save' : 'Add'}
         </button>
       </div>

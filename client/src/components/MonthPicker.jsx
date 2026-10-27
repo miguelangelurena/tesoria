@@ -28,7 +28,7 @@ function label(period) {
 // Month switcher with arrows, limited to the 12-month window
 export default function MonthPicker({ value, min, max, onChange }) {
   const btn =
-    "grid h-8 w-8 place-items-center rounded-lg text-lg text-white transition hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent";
+    "cursor-pointer grid h-8 w-8 place-items-center rounded-lg text-lg text-white transition hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent";
 
   return (
     <div className="flex items-center gap-1 rounded-xl border border-white/15 bg-white/5 p-1">
