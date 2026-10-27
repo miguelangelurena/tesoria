@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { KEYS, money } from '../constants';
 import Brand from './Brand';
 import BucketCard from './BucketCard';
 import Charts from './Charts';
+import CopyMonthBanner from './CopyMonthBanner';
 import Footer from './Footer';
 import MonthPicker from './MonthPicker';
 import TransactionForm from './TransactionForm';
 
 const CARD = 'rounded-2xl bg-surface p-5 shadow-sm ring-1 ring-line';
+
+// "2026-10" -> "2026-09" (handles the year boundary: "2026-01" -> "2025-12")
+function previousPeriod(p) {
+  const [y, m] = p.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
 // Summary card used for income, spending and what's left
 function StatCard({ label, value, hint, tone = 'neutral' }) {
@@ -31,6 +39,16 @@ export default function Dashboard({ user, onLogout }) {
   const [categories, setCategories] = useState([]);
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
+  // Month whose data is currently on screen (so we never judge a month "empty" while it is still loading)
+  const [loadedPeriod, setLoadedPeriod] = useState(null);
+  // Months where the user chose "Not now" on the copy offer
+  const [dismissed, setDismissed] = useState([]);
+  // Income autosave status: 'idle' | 'saving' | 'saved' | 'error'
+  const [incomeStatus, setIncomeStatus] = useState('idle');
+  const [incomeError, setIncomeError] = useState('');
+  // Always holds the month on screen, so a slow save can tell the user has moved on
+  const periodRef = useRef(period);
+  useEffect(() => { periodRef.current = period; }, [period]);
 
   // Loads the selected month plus the 12-month series and category list
   const refresh = useCallback(async () => {
@@ -41,6 +59,7 @@ export default function Dashboard({ user, onLogout }) {
       setTransactions(m.transactions);
       setTrend(s.months);
       setCategories(c.categories);
+      setLoadedPeriod(period);
       setError('');
     } catch (e) {
       setError(e.message);
@@ -49,21 +68,44 @@ export default function Dashboard({ user, onLogout }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Saves the income and reports the result next to the field
+  const saveIncome = useCallback(async (value) => {
+    const savedFor = period;
+    setIncomeStatus('saving');
+    try {
+      await api.setIncome(savedFor, value);
+    } catch (e) {
+      if (periodRef.current !== savedFor) return;
+      setIncomeError(e.message);
+      setIncomeStatus('error');
+      return;
+    }
+    // The user switched months while this was saving: don't touch the month now on screen
+    if (periodRef.current !== savedFor) return;
+    setIncome(value);
+    setIncomeStatus('saved');
+    // The income itself is saved; a failure here only affects the charts, so it uses the top banner
+    try {
+      setTrend((await api.summary()).months);
+    } catch (e) {
+      setError(e.message);
+    }
+  }, [period]);
+
   // Saves the income 500 ms after the user stops typing
   useEffect(() => {
     const value = Math.max(0, Number(incomeInput) || 0);
     if (value === income) return;
-    const t = setTimeout(async () => {
-      try {
-        await api.setIncome(period, value);
-        setIncome(value);
-        setTrend((await api.summary()).months);
-      } catch (e) {
-        setError(e.message);
-      }
-    }, 500);
+    const t = setTimeout(() => saveIncome(value), 500);
     return () => clearTimeout(t);
-  }, [incomeInput, period, income]);
+  }, [incomeInput, income, saveIncome]);
+
+  // "Saved" is a short confirmation: go back to the neutral text after a moment
+  useEffect(() => {
+    if (incomeStatus !== 'saved') return;
+    const t = setTimeout(() => setIncomeStatus('idle'), 2000);
+    return () => clearTimeout(t);
+  }, [incomeStatus]);
 
   const spent = useMemo(
     () => Object.fromEntries(KEYS.map((k) => [k, transactions
@@ -71,9 +113,36 @@ export default function Dashboard({ user, onLogout }) {
       .reduce((a, t) => a + t.amount, 0)])),
     [transactions]
   );
-  const totalSpent = KEYS.reduce((a, k) => a + spent[k], 0);
-  const left = income - totalSpent;
-  const spentPct = income > 0 ? Math.round((totalSpent / income) * 100) : 0;
+
+  // Needs + Wants are money spent. Savings is money set aside, so it is not "spent".
+  const spending = spent.needs + spent.wants;
+  const saved = spent.savings;
+  // Money not yet spent or set aside
+  const left = income - spending - saved;
+  const spentPct = income > 0 ? Math.round((spending / income) * 100) : 0;
+
+  let leftHint = 'Available to spend or save';
+  if (income === 0) leftHint = 'Nothing to track yet';
+  else if (left < 0) leftHint = 'Over budget this month';
+  else if (saved > 0) leftHint = `After setting aside ${money(saved)}`;
+
+  // Offer to copy the previous month only when this one is loaded, empty and not dismissed,
+  // and the previous month actually has something to copy
+  const prevPeriod = previousPeriod(period);
+  const prevData = trend.find((m) => m.period === prevPeriod);
+  const prevSpending = prevData ? prevData.needs + prevData.wants + prevData.savings : 0;
+  const canCopy =
+    loadedPeriod === period &&
+    income === 0 &&
+    transactions.length === 0 &&
+    !dismissed.includes(period) &&
+    Boolean(prevData) &&
+    (prevData.income > 0 || prevSpending > 0);
+
+  async function copyFromPrevious(withExpenses) {
+    await api.copyPrevious(period, withExpenses);
+    await refresh();
+  }
 
   async function saveTransaction(body) {
     if (editing) await api.updateTx(editing.id, body);
@@ -98,6 +167,8 @@ export default function Dashboard({ user, onLogout }) {
     onLogout();
   }
 
+  const incomeFailed = incomeStatus === 'error';
+
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-10 bg-ink text-white shadow-md">
@@ -105,7 +176,7 @@ export default function Dashboard({ user, onLogout }) {
           <Brand variant="dark" />
 
           <MonthPicker value={period} min={user.minPeriod} max={user.maxPeriod}
-            onChange={(p) => { setEditing(null); setPeriod(p); }} />
+            onChange={(p) => { setEditing(null); setIncomeStatus('idle'); setPeriod(p); }} />
 
           <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
             <span className="hidden text-sm text-white/60 lg:inline">Hi, {user.username}</span>
@@ -126,24 +197,53 @@ export default function Dashboard({ user, onLogout }) {
           <div role="alert" className="rounded-lg bg-brand/10 p-3 text-sm text-brand-dark">{error}</div>
         )}
 
+        {canCopy && (
+          <CopyMonthBanner previousPeriod={prevPeriod} income={prevData.income} spending={prevSpending}
+            onCopy={copyFromPrevious} onDismiss={() => setDismissed((d) => [...d, period])} />
+        )}
+
         <section className="grid gap-4 sm:grid-cols-3 sm:gap-5">
           <div className={CARD}>
             <label htmlFor="income" className="text-sm font-medium text-muted">Monthly income</label>
             <div className="relative mt-2">
               <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-lg text-muted">$</span>
               <input id="income" type="number" min="0" step="0.01" inputMode="decimal"
-                value={incomeInput} onChange={(e) => setIncomeInput(e.target.value)} placeholder="0.00"
-                className="w-full rounded-lg border border-line py-2 pl-7 pr-3 text-xl font-semibold outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20 sm:text-2xl" />
+                value={incomeInput} placeholder="0.00"
+                onChange={(e) => {
+                  setIncomeInput(e.target.value);
+                  // Typing again dismisses a stale error; the next save attempt will report its own result
+                  setIncomeStatus((s) => (s === 'error' ? 'idle' : s));
+                }}
+                aria-invalid={incomeFailed} aria-describedby="income-status"
+                className={`w-full rounded-lg border py-2 pl-7 pr-3 text-xl font-semibold outline-none transition focus:ring-2 sm:text-2xl ${
+                  incomeFailed
+                    ? 'border-brand-dark focus:border-brand-dark focus:ring-brand-dark/20'
+                    : 'border-line focus:border-brand focus:ring-brand/20'
+                }`} />
             </div>
-            <p className="mt-1 text-xs text-muted">Type your income and the targets update instantly.</p>
+            <p id="income-status" aria-live="polite"
+              className={`mt-1 text-xs ${incomeFailed ? 'text-brand-dark' : 'text-muted'}`}>
+              {incomeStatus === 'idle' && 'Saved automatically as you type.'}
+              {incomeStatus === 'saving' && 'Saving…'}
+              {incomeStatus === 'saved' && '✓ Saved'}
+              {incomeFailed && (
+                <>
+                  Could not save: {incomeError}{' '}
+                  <button type="button" onClick={() => saveIncome(Math.max(0, Number(incomeInput) || 0))}
+                    className="font-semibold underline">
+                    Retry
+                  </button>
+                </>
+              )}
+            </p>
           </div>
 
-          <StatCard label="Total spent" value={money(totalSpent)}
+          <StatCard label="Total spent" value={money(spending)}
             hint={income > 0 ? `${spentPct}% of your income` : 'Add your income to see progress'} />
 
           <StatCard label="Left this month" value={money(left)}
             tone={income === 0 ? 'neutral' : left < 0 ? 'bad' : 'good'}
-            hint={income === 0 ? 'Nothing to track yet' : left < 0 ? 'Over budget this month' : 'Available to spend or save'} />
+            hint={leftHint} />
         </section>
 
         <TransactionForm editing={editing} categories={categories}

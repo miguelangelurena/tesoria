@@ -204,6 +204,12 @@ function cutoffPeriod() {
 function validPeriod(p) {
   return PERIOD_RE.test(p) && p >= cutoffPeriod() && p <= currentPeriod();
 }
+// "2026-10" -> "2026-09" (handles the year boundary: "2026-01" -> "2025-12")
+function previousPeriod(p) {
+  const [y, m] = p.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+}
 async function purgeOld() {
   const c = cutoffPeriod();
   await pool.query('DELETE FROM transactions WHERE period < $1', [c]);
@@ -507,6 +513,66 @@ app.put('/api/months/:period/income', auth, periodParam, async (req, res) => {
     [req.user.id, req.params.period, income]
   );
   res.json({ income });
+});
+
+// Starts an empty month from the previous one: always copies the income and,
+// if asked, the expenses too. It refuses to touch a month that already has data,
+// so it can never duplicate or overwrite anything.
+app.post('/api/months/:period/copy-previous', auth, periodParam, async (req, res) => {
+  const target = req.params.period;
+  const source = previousPeriod(target);
+  const withExpenses = req.body.expenses === true;
+  if (!validPeriod(source)) {
+    return res.status(400).json({ error: 'There is no previous month to copy from' });
+  }
+
+  const uid = req.user.id;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // One copy at a time per user, so a double click can't insert the expenses twice
+    await client.query('SELECT pg_advisory_xact_lock($1)', [uid]);
+
+    const stats = async (period) => (await client.query(
+      `SELECT COALESCE((SELECT income FROM months WHERE user_id = $1 AND period = $2), 0)::float8 AS income,
+              (SELECT COUNT(*) FROM transactions WHERE user_id = $1 AND period = $2)::int AS txs`,
+      [uid, period]
+    )).rows[0];
+
+    const from = await stats(source);
+    const to = await stats(target);
+    if (to.income > 0 || to.txs > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This month already has data' });
+    }
+    if (from.income === 0 && (!withExpenses || from.txs === 0)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Nothing to copy from the previous month' });
+    }
+
+    await client.query(
+      `INSERT INTO months (user_id, period, income) VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, period) DO UPDATE SET income = EXCLUDED.income`,
+      [uid, target, from.income]
+    );
+    let copied = 0;
+    if (withExpenses) {
+      const r = await client.query(
+        `INSERT INTO transactions (user_id, period, bucket, description, category, amount)
+         SELECT user_id, $2::text, bucket, description, category, amount
+         FROM transactions WHERE user_id = $1 AND period = $3 ORDER BY id`,
+        [uid, target, source]
+      );
+      copied = r.rowCount;
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ income: from.income, copied });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 app.post('/api/months/:period/transactions', auth, periodParam, async (req, res) => {

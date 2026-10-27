@@ -1,8 +1,10 @@
 // Thin wrapper around fetch. Errors carry the server message and the response body in err.data.
-async function request(method, url, body) {
-  // Give up after 20 seconds so the UI never stays stuck on "Please wait"
+//  - err.status is the HTTP status. It is missing when no response arrived at all.
+//  - err.network is true when there was no response (offline, timeout, server asleep).
+async function request(method, url, body, { timeout = 20000 } = {}) {
+  // Give up after `timeout` ms so the UI never stays stuck on "Please wait"
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  const timer = setTimeout(() => controller.abort(), timeout);
   let res;
   try {
     res = await fetch(url, {
@@ -12,10 +14,13 @@ async function request(method, url, body) {
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('The server is taking too long. Please try again in a moment.');
-    }
-    throw new Error('Could not reach the server. Check your connection and try again.');
+    const e = new Error(
+      err.name === 'AbortError'
+        ? 'The server is taking too long. Please try again in a moment.'
+        : 'Could not reach the server. Check your connection and try again.'
+    );
+    e.network = true;
+    throw e;
   } finally {
     clearTimeout(timer);
   }
@@ -23,13 +28,15 @@ async function request(method, url, body) {
   if (!res.ok) {
     const err = new Error(data.error || 'Server error');
     err.data = data;
+    err.status = res.status;
     throw err;
   }
   return data;
 }
 
 export const api = {
-  me: () => request('GET', '/api/me'),
+  // Longer timeout: a sleeping free-tier server can take close to a minute to wake up
+  me: () => request('GET', '/api/me', undefined, { timeout: 60000 }),
   register: (username, email, password) => request('POST', '/api/auth/register', { username, email, password }),
   verify: (email, code) => request('POST', '/api/auth/verify', { email, code }),
   resend: (email) => request('POST', '/api/auth/resend', { email }),
@@ -39,6 +46,8 @@ export const api = {
   reset: (email, code, password) => request('POST', '/api/auth/reset', { email, code, password }),
   getMonth: (period) => request('GET', `/api/months/${period}`),
   setIncome: (period, income) => request('PUT', `/api/months/${period}/income`, { income }),
+  // Starts an empty month from the previous one (income, and expenses if asked)
+  copyPrevious: (period, expenses) => request('POST', `/api/months/${period}/copy-previous`, { expenses }),
   addTx: (period, body) => request('POST', `/api/months/${period}/transactions`, body),
   updateTx: (id, body) => request('PUT', `/api/transactions/${id}`, body),
   deleteTx: (id) => request('DELETE', `/api/transactions/${id}`),

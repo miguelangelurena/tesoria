@@ -24,7 +24,7 @@ A full-stack budgeting app built around the **50/30/20 rule**. Enter your monthl
 | Backend | Node.js, Express 5 |
 | Database | PostgreSQL (Neon) |
 | Auth | JWT in httpOnly cookies, bcrypt password hashing |
-| Email | Nodemailer (any SMTP provider) |
+| Email | [Brevo](https://www.brevo.com) transactional email API (sent over HTTPS) |
 | Security | Helmet (CSP and security headers), express-rate-limit |
 
 ## Project structure
@@ -33,7 +33,6 @@ A full-stack budgeting app built around the **50/30/20 rule**. Enter your monthl
 tesoria/
 ├── server.js            # Express API, database schema, auth and email
 ├── package.json
-├── .env.example         # Environment variable template
 └── client/
     ├── index.html
     ├── vite.config.js
@@ -51,7 +50,7 @@ tesoria/
 
 - Node.js 20.19 or newer (Node 22 LTS recommended)
 - A PostgreSQL database. A free [Neon](https://neon.tech) project works well.
-- An SMTP account to send verification emails (optional in development)
+- A [Brevo](https://www.brevo.com) account and API key to send verification emails (optional in development)
 
 ### 1. Clone and install
 
@@ -63,25 +62,21 @@ npm install
 
 ### 2. Configure environment variables
 
-Copy the template and fill in your values:
-
-```bash
-cp .env.example .env
-```
+Create a `.env` file in the project root (it is git-ignored) with your values:
 
 | Variable | Required | Description |
 |---|---|---|
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `DATABASE_URL_POOLED` | No | Pooled connection string (for example Neon's pooler). Used instead of `DATABASE_URL` when set. |
 | `JWT_SECRET` | Yes in production | Secret for signing sessions. At least 32 characters. |
-| `SMTP_HOST` | For email | SMTP server, for example `smtp.gmail.com` |
-| `SMTP_PORT` | For email | Usually `587` |
-| `SMTP_USER` | For email | SMTP username |
-| `SMTP_PASS` | For email | SMTP password or app password |
-| `MAIL_FROM` | For email | Sender, for example `Tesoria <you@example.com>` |
+| `BREVO_API_KEY` | For email | Brevo API key |
+| `MAIL_FROM_EMAIL` | For email | Sender address, verified in Brevo |
+| `MAIL_FROM_NAME` | No | Sender name. Defaults to `Tesoria`. |
+| `SITE_URL` | No | Public URL of the site, used for the logo in emails. Defaults to `https://tesoria.onrender.com`. |
 | `PORT` | No | Server port. Defaults to `3000`. |
 | `NODE_ENV` | No | Set to `production` when deployed |
 
-**Development without SMTP:** if the `SMTP_*` variables are not set, verification and reset codes are printed in the terminal instead of being emailed. This is disabled in production.
+**Development without email:** if `BREVO_API_KEY` and `MAIL_FROM_EMAIL` are not set, verification and reset codes are printed in the terminal instead of being emailed. This is disabled in production, where registration fails with "Email is not configured on the server".
 
 ### 3. Build and run
 
@@ -116,7 +111,7 @@ Build command:  npm install && npm run build
 Start command:  npm start
 ```
 
-Set the environment variables above in the Render dashboard, along with `NODE_ENV=production` and `NODE_VERSION=22`.
+Set the environment variables above in the Render dashboard, along with `NODE_ENV=production` and `NODE_VERSION=22`. Email goes through Brevo's HTTPS API because Render's free instances block outbound SMTP.
 
 ## API overview
 
@@ -134,6 +129,7 @@ All budget routes require a valid session cookie.
 | `GET` | `/api/me` | Current user and allowed month range |
 | `GET` | `/api/months/:period` | Income and transactions for a month (`YYYY-MM`) |
 | `PUT` | `/api/months/:period/income` | Set the month's income |
+| `POST` | `/api/months/:period/copy-previous` | Start an empty month from the previous one: copies the income, and the expenses when the body has `expenses: true` |
 | `POST` | `/api/months/:period/transactions` | Add a transaction |
 | `PUT` | `/api/transactions/:id` | Edit a transaction |
 | `DELETE` | `/api/transactions/:id` | Delete a transaction |

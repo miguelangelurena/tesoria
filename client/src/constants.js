@@ -1,8 +1,10 @@
 // Budget buckets, following the 50/30/20 rule
+// type: 'limit' = a spending cap (going over is bad)
+//       'goal'  = an amount to reach (meeting or exceeding it is good)
 export const BUCKETS = {
-  needs: { label: 'Needs', pct: 50, color: '#2b4a6f', hint: 'Rent, groceries, bills' },
-  wants: { label: 'Wants', pct: 30, color: '#ffa41b', hint: 'Dining out, fun, shopping' },
-  savings: { label: 'Savings & debt', pct: 20, color: '#22b455', hint: 'Savings and extra debt payments' },
+  needs: { label: 'Needs', pct: 50, color: '#2b4a6f', type: 'limit', hint: 'Rent, groceries, bills' },
+  wants: { label: 'Wants', pct: 30, color: '#ffa41b', type: 'limit', hint: 'Dining out, fun, shopping' },
+  savings: { label: 'Savings & debt', pct: 20, color: '#22b455', type: 'goal', hint: 'Savings and extra debt payments' },
 };
 
 export const KEYS = Object.keys(BUCKETS);

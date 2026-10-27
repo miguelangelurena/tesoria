@@ -51,7 +51,7 @@ export default function Charts({ period, income, spent, transactions, trend }) {
   const flowData = series.map((m) => ({
     period: m.period,
     Income: m.income,
-    Spending: m.needs + m.wants + m.savings,
+    Spending: m.needs + m.wants,
   }));
 
   return (
