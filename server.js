@@ -26,6 +26,8 @@ const BUCKETS = ['needs', 'wants', 'savings'];
 const BUCKET_LABELS = { needs: 'Needs', wants: 'Wants', savings: 'Savings & debt' };
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const ID_RE = /^\d+$/;
+const USERNAME_RE = /^[a-z0-9_.-]{3,30}$/;
+const USERNAME_MSG = 'Username: 3-30 characters (letters, numbers, . _ -)';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_RE = /^\d{6}$/;
 const CODE_TTL = '10 minutes';
@@ -363,9 +365,7 @@ app.post('/api/auth/register', async (req, res) => {
   const email = clean(req.body.email).toLowerCase();
   const password = String(req.body.password || '');
 
-  if (!/^[a-z0-9_.-]{3,30}$/.test(username)) {
-    return res.status(400).json({ error: 'Username: 3-30 characters (letters, numbers, . _ -)' });
-  }
+  if (!USERNAME_RE.test(username)) return res.status(400).json({ error: USERNAME_MSG });
   if (!EMAIL_RE.test(email) || email.length > 254) return res.status(400).json({ error: 'Enter a valid email address' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   // bcrypt only uses the first 72 bytes, so longer passwords would be silently truncated
@@ -487,6 +487,41 @@ app.get('/api/me', auth, (req, res) => {
   res.json({ username: req.user.username, minPeriod: cutoffPeriod(), maxPeriod: currentPeriod() });
 });
 
+// Changes the username. Asks for the password again because the username is also a login
+// identifier, and signs a fresh token because the old one still carries the old name.
+const usernameLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Try again in 15 minutes.' },
+});
+
+app.put('/api/me/username', usernameLimiter, auth, async (req, res) => {
+  const username = clean(req.body.username).toLowerCase();
+  const password = String(req.body.password || '');
+  if (!USERNAME_RE.test(username)) return res.status(400).json({ error: USERNAME_MSG });
+
+  const { rows } = await pool.query('SELECT username, password_hash FROM users WHERE id = $1', [req.user.id]);
+  const user = rows[0];
+  if (!user) return res.status(401).json({ error: 'Not authorized' });
+  // 403 (not 401): the session is fine, only the password was wrong
+  if (!(await bcrypt.compare(password, user.password_hash))) {
+    return res.status(403).json({ error: 'Incorrect password' });
+  }
+  if (username === user.username) return res.status(400).json({ error: 'That is already your username' });
+
+  // Free the name if it only belongs to an account that never verified its email
+  await pool.query('DELETE FROM users WHERE email_verified = false AND username = $1', [username]);
+  try {
+    await pool.query('UPDATE users SET username = $1 WHERE id = $2', [username, req.user.id]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'That username is already taken' });
+    throw err;
+  }
+  sendToken(res, req.user.id, username);
+});
+
 // ---------- Budget data ----------
 
 // Month: income + transactions
@@ -515,9 +550,10 @@ app.put('/api/months/:period/income', auth, periodParam, async (req, res) => {
   res.json({ income });
 });
 
-// Starts an empty month from the previous one: always copies the income and,
-// if asked, the expenses too. It refuses to touch a month that already has data,
-// so it can never duplicate or overwrite anything.
+// Copies the previous month into this one. It only ever adds: income is copied when this
+// month has none yet, and an expense is copied only if an identical one (same bucket,
+// description, category and amount) is not already here. So it works on an empty month and on
+// a partly filled one, and running it twice never duplicates or overwrites anything.
 app.post('/api/months/:period/copy-previous', auth, periodParam, async (req, res) => {
   const target = req.params.period;
   const source = previousPeriod(target);
@@ -541,32 +577,45 @@ app.post('/api/months/:period/copy-previous', auth, periodParam, async (req, res
 
     const from = await stats(source);
     const to = await stats(target);
-    if (to.income > 0 || to.txs > 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'This month already has data' });
-    }
     if (from.income === 0 && (!withExpenses || from.txs === 0)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Nothing to copy from the previous month' });
     }
 
+    // Creates the month if needed; an income that is already set is never replaced
+    const incomeCopied = from.income > 0 && to.income === 0;
     await client.query(
       `INSERT INTO months (user_id, period, income) VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, period) DO UPDATE SET income = EXCLUDED.income`,
+       ON CONFLICT (user_id, period) DO UPDATE
+       SET income = CASE WHEN months.income = 0 THEN EXCLUDED.income ELSE months.income END`,
       [uid, target, from.income]
     );
+
     let copied = 0;
     if (withExpenses) {
       const r = await client.query(
         `INSERT INTO transactions (user_id, period, bucket, description, category, amount)
-         SELECT user_id, $2::text, bucket, description, category, amount
-         FROM transactions WHERE user_id = $1 AND period = $3 ORDER BY id`,
+         SELECT s.user_id, $2::text, s.bucket, s.description, s.category, s.amount
+         FROM transactions s
+         WHERE s.user_id = $1 AND s.period = $3
+           AND NOT EXISTS (
+             SELECT 1 FROM transactions t
+             WHERE t.user_id = s.user_id AND t.period = $2::text
+               AND t.bucket = s.bucket AND t.description = s.description
+               AND t.category = s.category AND t.amount = s.amount
+           )
+         ORDER BY s.id`,
         [uid, target, source]
       );
       copied = r.rowCount;
     }
+
+    if (!incomeCopied && copied === 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Everything from the previous month is already here' });
+    }
     await client.query('COMMIT');
-    res.status(201).json({ income: from.income, copied });
+    res.status(201).json({ income: incomeCopied ? from.income : to.income, incomeCopied, copied });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;

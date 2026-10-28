@@ -90,6 +90,7 @@ export default function App() {
   return (
     <Dashboard
       user={user}
+      onUsernameChange={(username) => setUser((u) => ({ ...u, username }))}
       onLogout={() => {
         setUser(null);
         setScreen({ page: 'landing' });
