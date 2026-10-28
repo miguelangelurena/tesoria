@@ -42,11 +42,13 @@ export const api = {
   resend: (email) => request('POST', '/api/auth/resend', { email }),
   login: (identifier, password) => request('POST', '/api/auth/login', { identifier, password }),
   logout: () => request('POST', '/api/auth/logout'),
+  // Needs the current password; the server answers with the new username
+  changeUsername: (username, password) => request('PUT', '/api/me/username', { username, password }),
   forgot: (email) => request('POST', '/api/auth/forgot', { email }),
   reset: (email, code, password) => request('POST', '/api/auth/reset', { email, code, password }),
   getMonth: (period) => request('GET', `/api/months/${period}`),
   setIncome: (period, income) => request('PUT', `/api/months/${period}/income`, { income }),
-  // Starts an empty month from the previous one (income, and expenses if asked)
+  // Adds the previous month's income (if this one has none) and, if asked, its expenses. Never duplicates.
   copyPrevious: (period, expenses) => request('POST', `/api/months/${period}/copy-previous`, { expenses }),
   addTx: (period, body) => request('POST', `/api/months/${period}/transactions`, body),
   updateTx: (id, body) => request('PUT', `/api/transactions/${id}`, body),

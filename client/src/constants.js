@@ -24,3 +24,9 @@ const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFra
 export const money = (n) => '$' + fmt.format(Number(n) || 0);
 // Shorter version for chart axes, e.g. $1.2K
 export const moneyShort = (n) => '$' + compact.format(Number(n) || 0);
+
+// "2026-09" -> "September 2026"
+export const monthLabel = (period) => {
+  const [y, m] = period.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+};

@@ -1,6 +1,11 @@
+import { useState } from 'react';
 import { BUCKETS, OVER_COLOR, money } from '../constants';
 
+// How many transactions a card shows before the rest move behind "Show more"
+const VISIBLE = 5;
+
 export default function BucketCard({ bucketKey, income, spent, transactions, onEdit, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
   const b = BUCKETS[bucketKey];
   const isGoal = b.type === 'goal';
   const target = (income * b.pct) / 100;
@@ -11,6 +16,8 @@ export default function BucketCard({ bucketKey, income, spent, transactions, onE
   const over = !isGoal && target > 0 && delta > 0;
   const reached = isGoal && target > 0 && delta >= 0;
   const items = transactions.filter((t) => t.bucket === bucketKey);
+  const shown = expanded ? items : items.slice(0, VISIBLE);
+  const hiddenCount = items.length - VISIBLE;
 
   let badge = 'No income yet';
   if (target > 0) {
@@ -70,7 +77,7 @@ export default function BucketCard({ bucketKey, income, spent, transactions, onE
         {items.length === 0 && (
           <li className="py-3 text-sm text-muted">{isGoal ? 'Nothing saved yet' : 'No transactions yet'}</li>
         )}
-        {items.map((t) => (
+        {shown.map((t) => (
           <li key={t.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2.5 text-sm">
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium">{t.description}</p>
@@ -87,6 +94,13 @@ export default function BucketCard({ bucketKey, income, spent, transactions, onE
           </li>
         ))}
       </ul>
+
+      {items.length > VISIBLE && (
+        <button type="button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded}
+          className="mt-2 self-start rounded-md py-1 text-sm font-medium text-ink-soft hover:text-brand hover:underline">
+          {expanded ? 'Show less' : `Show ${hiddenCount} more…`}
+        </button>
+      )}
     </div>
   );
 }

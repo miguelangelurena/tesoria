@@ -13,6 +13,8 @@ A full-stack budgeting app built around the **50/30/20 rule**. Enter your monthl
 - **Full transaction management.** Add, edit and delete transactions, with category suggestions based on your history.
 - **Account security.** Email verification with one-time codes, password recovery by code, and rate limiting on authentication routes.
 - **12-month retention.** Data older than 12 months is purged automatically, which keeps storage small.
+- **Copy from the previous month.** Start a month from the last one, or add whatever is missing later.
+- **Account.** Change your username from the Account button.
 - **CSV export.** Download your last 12 months to Excel or Google Sheets.
 - **Responsive UI.** Works on phones, tablets and desktops, and can be installed as an app.
 
@@ -127,9 +129,10 @@ All budget routes require a valid session cookie.
 | `POST` | `/api/auth/reset` | Set a new password with the code |
 | `POST` | `/api/auth/logout` | End the session |
 | `GET` | `/api/me` | Current user and allowed month range |
+| `PUT` | `/api/me/username` | Change the username (needs the current password) |
 | `GET` | `/api/months/:period` | Income and transactions for a month (`YYYY-MM`) |
 | `PUT` | `/api/months/:period/income` | Set the month's income |
-| `POST` | `/api/months/:period/copy-previous` | Start an empty month from the previous one: copies the income, and the expenses when the body has `expenses: true` |
+| `POST` | `/api/months/:period/copy-previous` | Add the previous month's income (if this month has none) and, when the body has `expenses: true`, its expenses. Never overwrites or duplicates |
 | `POST` | `/api/months/:period/transactions` | Add a transaction |
 | `PUT` | `/api/transactions/:id` | Edit a transaction |
 | `DELETE` | `/api/transactions/:id` | Delete a transaction |
