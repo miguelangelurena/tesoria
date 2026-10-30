@@ -226,8 +226,13 @@ export default function Dashboard({ user, onLogout, onUsernameChange }) {
 
   async function logout() {
     setMenuOpen(false);
-    await api.logout();
-    onLogout();
+    try {
+      await api.logout();
+      onLogout();
+    } catch {
+      // Do not claim the session was revoked if the server could not confirm it.
+      setError('Could not sign out securely. Please check your connection and try again.');
+    }
   }
 
   const incomeFailed = incomeStatus === "error";

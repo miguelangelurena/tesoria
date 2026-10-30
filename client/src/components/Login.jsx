@@ -100,6 +100,19 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
   function handleSubmit(e) {
     e.preventDefault();
 
+    if (view === VIEW.REGISTER || view === VIEW.RESET) {
+      // HTML minlength counts UTF-16 code units; the backend counts Unicode
+      // characters. Match the server check for emoji and other symbols.
+      if ([...form.password].length < 15) {
+        setError('Password must be at least 15 characters');
+        return;
+      }
+      if (new TextEncoder().encode(form.password).length > 72) {
+        setError('Password must be at most 72 UTF-8 bytes');
+        return;
+      }
+    }
+
     if (view === VIEW.LOGIN) {
       return run(async () => {
         await api.login(form.identifier, form.password, remember);
@@ -182,9 +195,9 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
                   <input className={input} type="email" value={form.email} onChange={set('email')}
                     autoComplete="email" required />
                 </Field>
-                <Field label="Password" hint="At least 6 characters">
+                <Field label="Password" hint="At least 15 characters (spaces allowed)">
                   <input className={input} type="password" value={form.password} onChange={set('password')}
-                    autoComplete="new-password" required minLength={6} />
+                    autoComplete="new-password" required minLength={15} />
                 </Field>
               </>
             )}
@@ -211,9 +224,9 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
                     maxLength={6} value={form.code} onChange={set('code')}
                     autoComplete="one-time-code" placeholder="000000" required />
                 </Field>
-                <Field label="New password" hint="At least 6 characters">
+                <Field label="New password" hint="At least 15 characters (spaces allowed)">
                   <input className={input} type="password" value={form.password} onChange={set('password')}
-                    autoComplete="new-password" required minLength={6} />
+                    autoComplete="new-password" required minLength={15} />
                 </Field>
               </>
             )}

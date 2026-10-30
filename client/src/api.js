@@ -10,7 +10,10 @@ async function request(method, url, body, { timeout = 20000 } = {}) {
     res = await fetch(url, {
       method,
       signal: controller.signal,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(method !== 'GET' ? { 'X-Tesoria-Request': '1' } : {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (err) {

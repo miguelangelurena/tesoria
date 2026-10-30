@@ -9,6 +9,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { parseMoney, isAllowedMutation, passwordError, loginAttemptKey, isValidSessionId } from './security.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -34,9 +35,20 @@ const CODE_TTL = '10 minutes';
 const CODE_COOLDOWN_MS = 60 * 1000;
 const CODE_MAX_ATTEMPTS = 5;
 
+// TLS verification is mandatory for production connections to Neon.
+// node-postgres may override the ssl option when the URL contains sslmode.
+const parsedDatabaseUrl = new URL(DATABASE_URL);
+const sslMode = parsedDatabaseUrl.searchParams.get('sslmode');
+if (IS_PROD && (
+  (sslMode && !['require', 'verify-full'].includes(sslMode)) ||
+  parsedDatabaseUrl.searchParams.has('uselibpqcompat') ||
+  parsedDatabaseUrl.searchParams.has('ssl')
+)) {
+  throw new Error('Use a verified PostgreSQL TLS connection (sslmode=require or verify-full)');
+}
 const pool = new pg.Pool({
   connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: { rejectUnauthorized: true },
   max: 5,
 });
 
@@ -154,6 +166,7 @@ async function initDb() {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE`,
     // Existing accounts (created before email verification) stay verified
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version BIGINT NOT NULL DEFAULT 0`,
     `CREATE TABLE IF NOT EXISTS months (
       user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
       period TEXT NOT NULL,
@@ -189,6 +202,22 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_email_codes_lookup ON email_codes(email, purpose)`,
+    // Per-device session records allow immediate server-side logout. A token
+    // without a registered session is no longer valid (including legacy JWTs).
+    `CREATE TABLE IF NOT EXISTS user_sessions (
+      id UUID PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_user_sessions_expiry ON user_sessions(expires_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)`,
+    // A shared PostgreSQL counter survives Render restarts and multiple nodes.
+    `CREATE TABLE IF NOT EXISTS login_attempts (
+      identity_key TEXT PRIMARY KEY,
+      attempts INT NOT NULL DEFAULT 0,
+      window_started_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
   ];
   for (const sql of statements) await pool.query(sql);
 }
@@ -217,6 +246,9 @@ async function purgeOld() {
   await pool.query('DELETE FROM transactions WHERE period < $1', [c]);
   await pool.query('DELETE FROM months WHERE period < $1', [c]);
   await pool.query('DELETE FROM email_codes WHERE expires_at < now()');
+  // Keep account throttling and per-device session tables bounded.
+  await pool.query(`DELETE FROM login_attempts WHERE window_started_at < now() - interval '1 day'`);
+  await pool.query('DELETE FROM user_sessions WHERE expires_at < now()');
   // Accounts that never verified their email after a day
   await pool.query(`DELETE FROM users WHERE email_verified = false AND created_at < now() - interval '1 day'`);
 }
@@ -246,25 +278,38 @@ async function issueCode(email, purpose) {
 
 // True only if the code matches the latest unexpired code. Wrong tries are counted.
 async function checkCode(email, purpose, code) {
-  const { rows } = await pool.query(
-    `SELECT id, code_hash, attempts FROM email_codes
-     WHERE email = $1 AND purpose = $2 AND expires_at > now()
-     ORDER BY created_at DESC LIMIT 1`,
-    [email, purpose]
-  );
-  const row = rows[0];
-  if (!row || row.attempts >= CODE_MAX_ATTEMPTS) return false;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Serialize attempts to prevent simultaneous requests bypassing the 5-try limit.
+    const { rows } = await client.query(
+      `SELECT id, code_hash, attempts FROM email_codes
+       WHERE email = $1 AND purpose = $2 AND expires_at > now()
+       ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
+      [email, purpose]
+    );
+    const row = rows[0];
+    if (!row || row.attempts >= CODE_MAX_ATTEMPTS) {
+      await client.query('COMMIT');
+      return false;
+    }
 
-  const ok = crypto.timingSafeEqual(
-    Buffer.from(hashCode(email, purpose, code)),
-    Buffer.from(row.code_hash)
-  );
-  if (ok) {
-    await pool.query('DELETE FROM email_codes WHERE email = $1 AND purpose = $2', [email, purpose]);
-  } else {
-    await pool.query('UPDATE email_codes SET attempts = attempts + 1 WHERE id = $1', [row.id]);
+    const expected = Buffer.from(hashCode(email, purpose, code), 'hex');
+    const actual = Buffer.from(row.code_hash, 'hex');
+    const ok = actual.length === expected.length && crypto.timingSafeEqual(expected, actual);
+    if (ok) {
+      await client.query('DELETE FROM email_codes WHERE email = $1 AND purpose = $2', [email, purpose]);
+    } else {
+      await client.query('UPDATE email_codes SET attempts = attempts + 1 WHERE id = $1', [row.id]);
+    }
+    await client.query('COMMIT');
+    return ok;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
-  return ok;
 }
 
 // ---------- Input helpers ----------
@@ -273,11 +318,12 @@ const clean = v => String(v ?? '').trim();
 const stripMarkup = s => s.replace(/[\u0000-\u001F\u007F<>]/g, '');
 
 function parseTx(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const bucket = body.bucket;
   const description = stripMarkup(clean(body.description)).slice(0, 100);
   const category = stripMarkup(clean(body.category)).slice(0, 40) || 'General';
-  const amount = Number(body.amount);
-  if (!BUCKETS.includes(bucket) || !description || !(amount > 0)) return null;
+  const amount = parseMoney(body.amount);
+  if (!BUCKETS.includes(bucket) || !description || amount === null) return null;
   return { bucket, description, category, amount };
 }
 
@@ -306,12 +352,61 @@ app.use(express.json({ limit: '10kb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'client', 'dist')));
 
-function auth(req, res, next) {
+// Render readiness: report only availability, never configuration details.
+// A failed database ping returns 503 so traffic isn't routed to a broken instance.
+app.get('/healthz', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
-    req.user = jwt.verify(req.cookies.token, JWT_SECRET, { algorithms: ['HS256'] });
-    next();
+    await pool.query('SELECT 1');
+    res.status(200).json({ status: 'ok' });
   } catch {
-    res.status(401).json({ error: 'Not authorized' });
+    res.status(503).json({ status: 'unavailable' });
+  }
+});
+
+
+// CSRF defense-in-depth: reject cross-origin writes and require an API-only
+// custom header, which ordinary cross-origin forms cannot send.
+const allowedOrigins = new Set([
+  new URL(SITE_URL).origin,
+  ...(!IS_PROD ? [
+    'http://localhost:5173', 'http://127.0.0.1:5173',
+    'http://localhost:3000', 'http://127.0.0.1:3000',
+  ] : []),
+]);
+app.use('/api', (req, res, next) => {
+  if (!isAllowedMutation(req.method, req.get('origin'), req.get('X-Tesoria-Request'), allowedOrigins)) {
+    return res.status(403).json({ error: 'Request origin is not allowed' });
+  }
+  next();
+});
+
+async function auth(req, res, next) {
+  let payload;
+  try {
+    payload = jwt.verify(req.cookies.token, JWT_SECRET, { algorithms: ['HS256'] });
+  } catch {
+    return res.status(401).json({ error: 'Not authorized' });
+  }
+  try {
+    // Legacy JWTs without sid require a fresh login after this deployment.
+    if (!isValidSessionId(payload.sid)) {
+      return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+    }
+    const { rows } = await pool.query(
+      `SELECT u.session_version, u.username
+       FROM users u JOIN user_sessions s ON s.user_id = u.id
+       WHERE u.id = $1 AND s.id = $2 AND s.expires_at > now()
+         AND u.email_verified = true`,
+      [payload.id, payload.sid]
+    );
+    if (!rows[0] || Number(rows[0].session_version) !== Number(payload.sv ?? 0)) {
+      return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+    }
+    req.user = { ...payload, username: rows[0].username, sv: Number(rows[0].session_version) };
+    next();
+  } catch (err) {
+    next(err);
   }
 }
 
@@ -331,8 +426,9 @@ function idParam(req, res, next) {
 // drops it when it closes) and the token itself only lives for a day.
 const REMEMBER_DAYS = 30;
 
-function setSessionCookie(res, id, username, remember) {
-  const token = jwt.sign({ id, username, remember }, JWT_SECRET, {
+// Keep sid stable on token refresh; logout removes only this session.
+function setSessionCookie(res, id, username, remember, sessionVersion, sid) {
+  const token = jwt.sign({ id, username, remember, sv: Number(sessionVersion), sid }, JWT_SECRET, {
     expiresIn: remember ? `${REMEMBER_DAYS}d` : '1d',
   });
   res.cookie('token', token, {
@@ -344,9 +440,37 @@ function setSessionCookie(res, id, username, remember) {
   });
 }
 
-function sendToken(res, id, username, remember = true) {
-  setSessionCookie(res, id, username, remember);
+async function sendToken(res, id, username, remember = true, sessionVersion = 0) {
+  const sid = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO user_sessions (id, user_id, expires_at)
+     VALUES ($1, $2, now() + ($3::int * interval '1 day'))`,
+    [sid, id, remember ? REMEMBER_DAYS : 1]
+  );
+  setSessionCookie(res, id, username, remember, sessionVersion, sid);
   res.json({ username });
+}
+
+// Atomic database-backed budget: at most 10 login attempts per account
+// (whether identified by username or email) per 15-minute fixed window.
+// Counting before bcrypt prevents concurrent attempts from bypassing the limit.
+const LOGIN_ATTEMPT_LIMIT = 10;
+async function consumeLoginAttempt(identityKey) {
+  const { rows } = await pool.query(
+    `INSERT INTO login_attempts (identity_key, attempts, window_started_at)
+     VALUES ($1, 1, now())
+     ON CONFLICT (identity_key) DO UPDATE SET
+       attempts = CASE
+         WHEN login_attempts.window_started_at <= now() - interval '15 minutes' THEN 1
+         ELSE login_attempts.attempts + 1 END,
+       window_started_at = CASE
+         WHEN login_attempts.window_started_at <= now() - interval '15 minutes' THEN now()
+         ELSE login_attempts.window_started_at END
+     RETURNING attempts,
+       GREATEST(1, CEIL(EXTRACT(EPOCH FROM (window_started_at + interval '15 minutes' - now()))))::int AS retry_seconds`,
+    [identityKey]
+  );
+  return rows[0];
 }
 
 // ---------- Auth ----------
@@ -366,7 +490,12 @@ const codeLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many code requests. Try again later.' },
 });
-app.use('/api/auth', authLimiter);
+// Logout must remain available even when an IP has exhausted its auth limit;
+// otherwise users could be prevented from revoking their own sessions.
+app.use('/api/auth', (req, res, next) => {
+  if (req.method === 'POST' && req.path === '/logout') return next();
+  return authLimiter(req, res, next);
+});
 app.use(['/api/auth/resend', '/api/auth/forgot'], codeLimiter);
 
 
@@ -374,13 +503,12 @@ app.use(['/api/auth/resend', '/api/auth/forgot'], codeLimiter);
 app.post('/api/auth/register', async (req, res) => {
   const username = clean(req.body.username).toLowerCase();
   const email = clean(req.body.email).toLowerCase();
-  const password = String(req.body.password || '');
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
   if (!USERNAME_RE.test(username)) return res.status(400).json({ error: USERNAME_MSG });
   if (!EMAIL_RE.test(email) || email.length > 254) return res.status(400).json({ error: 'Enter a valid email address' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  // bcrypt only uses the first 72 bytes, so longer passwords would be silently truncated
-  if (Buffer.byteLength(password) > 72) return res.status(400).json({ error: 'Password must be at most 72 bytes' });
+  const passwordIssue = passwordError(password);
+  if (passwordIssue) return res.status(400).json({ error: passwordIssue });
 
   const { rows: taken } = await pool.query(
     'SELECT 1 FROM users WHERE (email = $1 OR username = $2) AND email_verified = true',
@@ -419,11 +547,11 @@ app.post('/api/auth/verify', async (req, res) => {
     return res.status(400).json({ error: 'Invalid or expired code' });
   }
   const { rows } = await pool.query(
-    'UPDATE users SET email_verified = true WHERE email = $1 RETURNING id, username',
+    'UPDATE users SET email_verified = true WHERE email = $1 RETURNING id, username, session_version',
     [email]
   );
   if (!rows[0]) return res.status(400).json({ error: 'Invalid or expired code' });
-  sendToken(res, rows[0].id, rows[0].username);
+  await sendToken(res, rows[0].id, rows[0].username, true, rows[0].session_version);
 });
 
 app.post('/api/auth/resend', async (req, res) => {
@@ -439,15 +567,26 @@ app.post('/api/auth/resend', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const identifier = clean(req.body.identifier).toLowerCase();
-  const password = String(req.body.password || '');
-  // Older clients don't send this, so they keep the long session
+  const identifier = clean(req.body?.identifier).toLowerCase();
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!identifier || identifier.length > 254) {
+    return res.status(400).json({ error: 'Enter your username or email' });
+  }
+  // Older clients don't send this, so they keep the long session.
   const remember = req.body.remember !== false;
   const { rows } = await pool.query(
-    'SELECT id, username, email, email_verified, password_hash FROM users WHERE email = $1 OR username = $1',
+    'SELECT id, username, email, email_verified, password_hash, session_version FROM users WHERE email = $1 OR username = $1',
     [identifier]
   );
   const user = rows[0];
+  // Email and username share a single key for known accounts. No raw email is stored.
+  const key = loginAttemptKey(identifier, user?.id, JWT_SECRET);
+  const limit = await consumeLoginAttempt(key);
+  if (Number(limit.attempts) > LOGIN_ATTEMPT_LIMIT) {
+    res.setHeader('Retry-After', String(limit.retry_seconds));
+    return res.status(429).json({ error: 'Too many sign-in attempts. Please try again later or reset your password.' });
+  }
+  // Keep the public error generic for unknown accounts and incorrect passwords.
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
@@ -459,11 +598,21 @@ app.post('/api/auth/login', async (req, res) => {
       email: user.email,
     });
   }
-  sendToken(res, user.id, user.username, remember);
+  // A correct password clears the counter. Failed attempts do not.
+  await pool.query('DELETE FROM login_attempts WHERE identity_key = $1', [key]);
+  await sendToken(res, user.id, user.username, remember, user.session_version);
 });
 
-app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie('token');
+app.post('/api/auth/logout', async (req, res) => {
+  let payload;
+  try {
+    payload = jwt.verify(req.cookies.token, JWT_SECRET, { algorithms: ['HS256'] });
+  } catch { /* Missing or invalid cookie: idempotent logout. */ }
+  if (payload?.id && isValidSessionId(payload.sid)) {
+    // A stolen copy of this JWT will fail authentication immediately afterward.
+    await pool.query('DELETE FROM user_sessions WHERE id = $1 AND user_id = $2', [payload.sid, payload.id]);
+  }
+  res.clearCookie('token', { httpOnly: true, secure: IS_PROD, sameSite: 'lax' });
   res.json({ ok: true });
 });
 
@@ -481,25 +630,36 @@ app.post('/api/auth/forgot', async (req, res) => {
 app.post('/api/auth/reset', async (req, res) => {
   const email = clean(req.body.email).toLowerCase();
   const code = clean(req.body.code);
-  const password = String(req.body.password || '');
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
 
   if (!CODE_RE.test(code)) return res.status(400).json({ error: 'Enter the 6-digit code' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  // bcrypt only uses the first 72 bytes, so longer passwords would be silently truncated
-  if (Buffer.byteLength(password) > 72) return res.status(400).json({ error: 'Password must be at most 72 bytes' });
+  const passwordIssue = passwordError(password);
+  if (passwordIssue) return res.status(400).json({ error: passwordIssue });
   if (!(await checkCode(email, 'reset', code))) {
     return res.status(400).json({ error: 'Invalid or expired code' });
   }
 
   const hash = await bcrypt.hash(password, 10);
-  await pool.query('UPDATE users SET password_hash = $1 WHERE email = $2 AND email_verified = true', [hash, email]);
+  // Invalidate every token issued before this reset, including 30-day sessions.
+  await pool.query(
+    'UPDATE users SET password_hash = $1, session_version = session_version + 1 WHERE email = $2 AND email_verified = true',
+    [hash, email]
+  );
   res.json({ ok: true });
 });
 
-app.get('/api/me', auth, (req, res) => {
-  // Every visit pushes the 30 days forward, so someone who uses the app regularly never has to
-  // sign in again. Tokens issued before this feature have no `remember` flag and are left alone.
-  if (req.user.remember === true) setSessionCookie(res, req.user.id, req.user.username, true);
+app.get('/api/me', auth, async (req, res) => {
+  // Sliding 30-day sessions renew the existing database session ID, rather
+  // than creating a new session on every visit. Never revive a logged-out ID.
+  if (req.user.remember === true) {
+    const { rowCount } = await pool.query(
+      `UPDATE user_sessions SET expires_at = now() + interval '30 days'
+       WHERE id = $1 AND user_id = $2 AND expires_at > now()`,
+      [req.user.sid, req.user.id]
+    );
+    if (!rowCount) return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+    setSessionCookie(res, req.user.id, req.user.username, true, req.user.sv, req.user.sid);
+  }
   res.json({ username: req.user.username, minPeriod: cutoffPeriod(), maxPeriod: currentPeriod() });
 });
 
@@ -535,7 +695,9 @@ app.put('/api/me/username', usernameLimiter, auth, async (req, res) => {
     if (err.code === '23505') return res.status(409).json({ error: 'That username is already taken' });
     throw err;
   }
-  sendToken(res, req.user.id, username, req.user.remember !== false);
+  // Preserve the existing device session and its revocation identity.
+  setSessionCookie(res, req.user.id, username, req.user.remember !== false, req.user.sv, req.user.sid);
+  res.json({ username });
 });
 
 // ---------- Budget data ----------
@@ -557,7 +719,8 @@ app.get('/api/months/:period', auth, periodParam, async (req, res) => {
 });
 
 app.put('/api/months/:period/income', auth, periodParam, async (req, res) => {
-  const income = Math.max(0, Number(req.body.income) || 0);
+  const income = parseMoney(req.body?.income, { allowZero: true });
+  if (income === null) return res.status(400).json({ error: 'Invalid income amount' });
   await pool.query(
     `INSERT INTO months (user_id, period, income) VALUES ($1, $2, $3)
      ON CONFLICT (user_id, period) DO UPDATE SET income = EXCLUDED.income`,
@@ -749,7 +912,7 @@ async function start() {
   await initDb();
   await purgeOld();
   setInterval(() => purgeOld().catch(console.error), 24 * 60 * 60 * 1000);
-  app.listen(PORT, () => console.log(`Tesoria running at http://localhost:${PORT}`));
+  app.listen(PORT, '0.0.0.0', () => console.log(`Tesoria listening on port ${PORT}`));
 }
 
 start().catch(err => {
