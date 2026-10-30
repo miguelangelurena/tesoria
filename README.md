@@ -4,8 +4,6 @@ A full-stack budgeting app built around the **50/30/20 rule**. Enter your monthl
 
 **Live demo:** https://tesoria.onrender.com/
 
-![Tesoria dashboard](docs/screenshot.png)
-
 ## Features
 
 - **50/30/20 budgeting.** Needs (50%), Wants (30%) and Savings & debt (20%) targets are calculated from your income automatically.
