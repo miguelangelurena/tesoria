@@ -1,15 +1,29 @@
+import { useState } from 'react';
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, Legend, CartesianGrid,
 } from 'recharts';
 import { BUCKETS, KEYS, PALETTE, money, moneyShort } from '../constants';
+import Chevron from './Chevron';
 
-// Card wrapper that shows an empty state when there is no data
+// Card wrapper that shows an empty state when there is no data.
+// On phones each chart starts collapsed (tap the title to open it); from md up it is always open.
+// Collapsing is pure CSS (`hidden md:block`), so there is no screen-size check in JavaScript.
 function ChartCard({ title, empty, children }) {
+  const [open, setOpen] = useState(false);
   return (
     <div className="rounded-2xl bg-surface p-5 shadow-sm ring-1 ring-line">
-      <h2 className="mb-3 font-semibold">{title}</h2>
-      <div className="h-64 sm:h-72">
+      <h2 className="hidden font-semibold md:block">{title}</h2>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between text-left font-semibold md:hidden"
+      >
+        <span>{title}</span>
+        <Chevron open={open} className="text-muted" />
+      </button>
+      <div className={`${open ? 'mt-3 block' : 'hidden'} h-64 md:mt-3 md:block md:h-72`}>
         {empty
           ? <div className="grid h-full place-items-center text-sm text-muted">No data yet</div>
           : <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>}

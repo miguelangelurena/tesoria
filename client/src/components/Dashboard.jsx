@@ -5,6 +5,7 @@ import AccountModal from "./AccountModal";
 import Brand from "./Brand";
 import BucketCard from "./BucketCard";
 import Charts from "./Charts";
+import Chevron from "./Chevron";
 import ConfirmDialog from "./ConfirmDialog";
 import CopyMonthBanner from "./CopyMonthBanner";
 import CopyMonthButton from "./CopyMonthButton";
@@ -55,6 +56,8 @@ export default function Dashboard({ user, onLogout, onUsernameChange }) {
   const [incomeStatus, setIncomeStatus] = useState("idle");
   const [incomeError, setIncomeError] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
+  // Phone-only: the Account / Export / Sign out links live behind a menu button
+  const [menuOpen, setMenuOpen] = useState(false);
   // Transaction waiting for the user to confirm its deletion, and whether the delete is running
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -213,7 +216,16 @@ export default function Dashboard({ user, onLogout, onUsernameChange }) {
     }
   }
 
+  // Escape closes the phone menu
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e) => e.key === "Escape" && setMenuOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
   async function logout() {
+    setMenuOpen(false);
     await api.logout();
     onLogout();
   }
@@ -224,39 +236,62 @@ export default function Dashboard({ user, onLogout, onUsernameChange }) {
     <div className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-10 bg-ink text-white shadow-md">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-3 sm:px-6">
-          <Brand variant="dark" />
+          {/* Phone: logo on the left, menu button on the right */}
+          <div className="flex w-full items-center justify-between sm:w-auto">
+            <Brand variant="dark" />
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-expanded={menuOpen}
+              aria-controls="header-menu"
+              className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white sm:hidden"
+            >
+              Menu
+              <Chevron open={menuOpen} className="h-4 w-4" />
+            </button>
+          </div>
 
-          <MonthPicker
-            value={period}
-            min={user.minPeriod}
-            max={user.maxPeriod}
-            onChange={(p) => {
-              setEditing(null);
-              setIncomeStatus("idle");
-              setError("");
-              setPeriod(p);
-            }}
-          />
+          <div className="flex w-full justify-center sm:w-auto">
+            <MonthPicker
+              value={period}
+              min={user.minPeriod}
+              max={user.maxPeriod}
+              onChange={(p) => {
+                setEditing(null);
+                setIncomeStatus("idle");
+                setError("");
+                setPeriod(p);
+              }}
+            />
+          </div>
 
-          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
-            <span className="hidden text-sm text-white/60 lg:inline">
+          {/* Collapsed on phones until the menu button is tapped; always visible from sm up */}
+          <div
+            id="header-menu"
+            className={`${menuOpen ? "flex" : "hidden"} w-full flex-col gap-1 border-t border-white/10 pt-2 sm:flex sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-2 sm:border-0 sm:pt-0`}
+          >
+            <span className="px-3 py-1 text-sm text-white/60 sm:hidden lg:inline">
               Hi, {user.username}
             </span>
             <button
-              onClick={() => setAccountOpen(true)}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white"
+              onClick={() => {
+                setMenuOpen(false);
+                setAccountOpen(true);
+              }}
+              className="rounded-lg px-3 py-2 text-left text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white sm:py-1.5"
             >
               Account
             </button>
             <a
               href="/api/export"
-              className="rounded-lg border border-growth-light/60 px-3 py-1.5 text-sm font-medium text-growth-light transition hover:bg-growth-light/10"
+              onClick={() => setMenuOpen(false)}
+              className="rounded-lg px-3 py-2 text-sm font-medium text-growth-light transition hover:bg-growth-light/10 sm:border sm:border-growth-light/60 sm:py-1.5"
             >
               Export CSV
             </a>
             <button
               onClick={logout}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white"
+              className="rounded-lg px-3 py-2 text-left text-sm font-medium text-white/80 transition hover:bg-white/10 hover:text-white sm:py-1.5"
             >
               Sign out
             </button>

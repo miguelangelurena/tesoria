@@ -22,6 +22,18 @@ const SUBMIT_LABELS = {
   reset: 'Change password',
 };
 
+// The last username/email is kept on the device only to pre-fill the field. Never the password.
+const LAST_LOGIN_KEY = 'tesoria:last-login';
+function readLastLogin() {
+  try { return localStorage.getItem(LAST_LOGIN_KEY) || ''; } catch { return ''; }
+}
+function saveLastLogin(value) {
+  try {
+    if (value) localStorage.setItem(LAST_LOGIN_KEY, value);
+    else localStorage.removeItem(LAST_LOGIN_KEY);
+  } catch { /* storage blocked (private mode): nothing to do */ }
+}
+
 const input =
   'w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20';
 
@@ -37,7 +49,8 @@ function Field({ label, hint, children }) {
 
 export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
   const [view, setView] = useState(initialView);
-  const [form, setForm] = useState({ identifier: '', username: '', email: '', password: '', code: '' });
+  const [form, setForm] = useState(() => ({ identifier: readLastLogin(), username: '', email: '', password: '', code: '' }));
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
@@ -89,7 +102,9 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
 
     if (view === VIEW.LOGIN) {
       return run(async () => {
-        await api.login(form.identifier, form.password);
+        await api.login(form.identifier, form.password, remember);
+        // Only remember the name on this device when the person asked to stay signed in
+        saveLastLogin(remember ? form.identifier.trim() : '');
         await onLogin();
       });
     }
@@ -149,6 +164,11 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
                   <input className={input} type="password" value={form.password} onChange={set('password')}
                     autoComplete="current-password" required />
                 </Field>
+                <label className="flex items-center gap-2 text-sm text-ink-soft">
+                  <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)}
+                    className="h-4 w-4 accent-brand" />
+                  Keep me signed in on this device
+                </label>
               </>
             )}
 

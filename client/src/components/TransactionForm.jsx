@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BUCKETS, KEYS } from '../constants';
+import Chevron from './Chevron';
 
 const empty = { bucket: 'needs', description: '', category: '', amount: '' };
 const input =
@@ -9,6 +10,10 @@ export default function TransactionForm({ editing, categories, onSubmit, onCance
   const [form, setForm] = useState(empty);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Phones only: the fields stay folded away until the person taps "New transaction".
+  // Editing always shows them, so Edit on a card can never land on a hidden form.
+  const [open, setOpen] = useState(false);
+  const expanded = open || Boolean(editing);
   const formRef = useRef(null);
   const descRef = useRef(null);
   // Last bucket used, so logging several items in a row doesn't reset it to "needs".
@@ -63,8 +68,20 @@ export default function TransactionForm({ editing, categories, onSubmit, onCance
   return (
     <form ref={formRef} onSubmit={handleSubmit}
       className={`rounded-2xl bg-surface p-5 shadow-sm sm:p-6 ${editing ? 'ring-2 ring-brand/40' : 'ring-1 ring-line'}`}>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="font-semibold">{editing ? 'Editing transaction' : 'New transaction'}</h2>
+      <div className={`flex items-center justify-between ${expanded ? 'mb-4' : 'mb-0'} md:mb-4`}>
+        {editing ? (
+          <h2 className="font-semibold">Editing transaction</h2>
+        ) : (
+          <>
+            <h2 className="hidden font-semibold md:block">New transaction</h2>
+            <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={expanded}
+              aria-controls="transaction-fields"
+              className="flex flex-1 items-center justify-between text-left font-semibold md:hidden">
+              <span>{expanded ? 'New transaction' : '+ Add a transaction'}</span>
+              <Chevron open={expanded} className="text-muted" />
+            </button>
+          </>
+        )}
         {editing && (
           <button type="button" onClick={onCancel} className="text-sm font-medium text-muted hover:text-ink">
             Cancel
@@ -72,7 +89,8 @@ export default function TransactionForm({ editing, categories, onSubmit, onCance
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1.4fr_1fr_1fr_auto]">
+      <div id="transaction-fields"
+        className={`${expanded ? 'grid' : 'hidden'} grid-cols-1 gap-3 sm:grid-cols-2 md:grid lg:grid-cols-[1fr_1.4fr_1fr_1fr_auto]`}>
         <select aria-label="Bucket" className={input} value={form.bucket} onChange={set('bucket')}>
           {KEYS.map((k) => <option key={k} value={k}>{BUCKETS[k].label}</option>)}
         </select>

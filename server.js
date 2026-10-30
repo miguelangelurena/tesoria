@@ -327,14 +327,25 @@ function idParam(req, res, next) {
   next();
 }
 
-function sendToken(res, id, username) {
-  const token = jwt.sign({ id, username }, JWT_SECRET, { expiresIn: '7d' });
+// "Keep me signed in" lasts 30 days. Without it the cookie is a session cookie (the browser
+// drops it when it closes) and the token itself only lives for a day.
+const REMEMBER_DAYS = 30;
+
+function setSessionCookie(res, id, username, remember) {
+  const token = jwt.sign({ id, username, remember }, JWT_SECRET, {
+    expiresIn: remember ? `${REMEMBER_DAYS}d` : '1d',
+  });
   res.cookie('token', token, {
     httpOnly: true,
     sameSite: 'lax',
     secure: IS_PROD,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    // No maxAge = session cookie
+    ...(remember ? { maxAge: REMEMBER_DAYS * 24 * 60 * 60 * 1000 } : {}),
   });
+}
+
+function sendToken(res, id, username, remember = true) {
+  setSessionCookie(res, id, username, remember);
   res.json({ username });
 }
 
@@ -430,6 +441,8 @@ app.post('/api/auth/resend', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const identifier = clean(req.body.identifier).toLowerCase();
   const password = String(req.body.password || '');
+  // Older clients don't send this, so they keep the long session
+  const remember = req.body.remember !== false;
   const { rows } = await pool.query(
     'SELECT id, username, email, email_verified, password_hash FROM users WHERE email = $1 OR username = $1',
     [identifier]
@@ -446,7 +459,7 @@ app.post('/api/auth/login', async (req, res) => {
       email: user.email,
     });
   }
-  sendToken(res, user.id, user.username);
+  sendToken(res, user.id, user.username, remember);
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -484,6 +497,9 @@ app.post('/api/auth/reset', async (req, res) => {
 });
 
 app.get('/api/me', auth, (req, res) => {
+  // Every visit pushes the 30 days forward, so someone who uses the app regularly never has to
+  // sign in again. Tokens issued before this feature have no `remember` flag and are left alone.
+  if (req.user.remember === true) setSessionCookie(res, req.user.id, req.user.username, true);
   res.json({ username: req.user.username, minPeriod: cutoffPeriod(), maxPeriod: currentPeriod() });
 });
 
@@ -519,7 +535,7 @@ app.put('/api/me/username', usernameLimiter, auth, async (req, res) => {
     if (err.code === '23505') return res.status(409).json({ error: 'That username is already taken' });
     throw err;
   }
-  sendToken(res, req.user.id, username);
+  sendToken(res, req.user.id, username, req.user.remember !== false);
 });
 
 // ---------- Budget data ----------

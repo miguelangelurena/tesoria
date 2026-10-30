@@ -16,7 +16,8 @@ A full-stack budgeting app built around the **50/30/20 rule**. Enter your monthl
 - **Copy from the previous month.** Start a month from the last one, or add whatever is missing later.
 - **Account.** Change your username from the Account button.
 - **CSV export.** Download your last 12 months to Excel or Google Sheets.
-- **Responsive UI.** Works on phones, tablets and desktops, and can be installed as an app.
+- **Stay signed in.** A "Keep me signed in" option keeps you signed in for 30 days (renewed each visit) using an httpOnly cookie; the username field is pre-filled from the device.
+- **Responsive UI.** Works on phones, tablets and desktops, and can be installed as an app. On phones the menu, the new-transaction form and the charts start collapsed.
 
 ## Tech stack
 
@@ -143,7 +144,7 @@ All budget routes require a valid session cookie.
 ## Security
 
 - Passwords are hashed with bcrypt. Passwords longer than 72 bytes are rejected, because bcrypt ignores anything after that.
-- Session tokens are signed JWTs with a pinned algorithm (HS256), stored in `httpOnly`, `SameSite=Lax` cookies. They are `Secure` in production.
+- Session tokens are signed JWTs with a pinned algorithm (HS256), stored in `httpOnly`, `SameSite=Lax` cookies. They are `Secure` in production. The session is never kept in `localStorage`, where any injected script could read it. Without "Keep me signed in" the cookie ends when the browser closes.
 - Verification and reset codes are stored as HMAC hashes, expire after 10 minutes, and lock out after 5 wrong attempts.
 - Authentication routes are rate limited per IP.
 - Helmet sets security headers and a Content Security Policy.

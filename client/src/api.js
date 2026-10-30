@@ -40,7 +40,8 @@ export const api = {
   register: (username, email, password) => request('POST', '/api/auth/register', { username, email, password }),
   verify: (email, code) => request('POST', '/api/auth/verify', { email, code }),
   resend: (email) => request('POST', '/api/auth/resend', { email }),
-  login: (identifier, password) => request('POST', '/api/auth/login', { identifier, password }),
+  // remember = keep the session for 30 days; otherwise it ends when the browser closes
+  login: (identifier, password, remember = true) => request('POST', '/api/auth/login', { identifier, password, remember }),
   logout: () => request('POST', '/api/auth/logout'),
   // Needs the current password; the server answers with the new username
   changeUsername: (username, password) => request('PUT', '/api/me/username', { username, password }),

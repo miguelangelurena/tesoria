@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import { BUCKETS, OVER_COLOR, money } from '../constants';
+import useMediaQuery from '../useMediaQuery';
 
 // How many transactions a card shows before the rest move behind "Show more"
-const VISIBLE = 5;
+// (fewer on phones, where the three cards are stacked and the page gets very long)
+const VISIBLE_DESKTOP = 5;
+const VISIBLE_PHONE = 3;
 
 export default function BucketCard({ bucketKey, income, spent, transactions, onEdit, onDelete }) {
   const [expanded, setExpanded] = useState(false);
+  const isPhone = useMediaQuery('(max-width: 767px)');
+  const VISIBLE = isPhone ? VISIBLE_PHONE : VISIBLE_DESKTOP;
   const b = BUCKETS[bucketKey];
   const isGoal = b.type === 'goal';
   const target = (income * b.pct) / 100;
