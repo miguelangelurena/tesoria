@@ -57,6 +57,25 @@ const STEPS = [
   },
 ];
 
+const FAQS = [
+  {
+    q: "What is the 50/30/20 budget rule?",
+    a: "It is a simple way to split your after-tax income: 50% for needs such as rent, groceries and bills, 30% for wants such as dining out and fun, and 20% for savings and extra debt payments.",
+  },
+  {
+    q: "Is Tesoria free?",
+    a: "Yes. Tesoria is free to use and you do not need a credit card to create an account.",
+  },
+  {
+    q: "How does Tesoria calculate my budget?",
+    a: "Enter your income for the month and Tesoria sets your targets for needs, wants and savings automatically. Then log each expense and the charts update as you go.",
+  },
+  {
+    q: "Can I export my data?",
+    a: "Yes. You can download a CSV of your last 12 months and open it in Excel or Google Sheets.",
+  },
+];
+
 const BUTTON_PRIMARY =
   "cursor-pointer shrink-0 rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark sm:px-5";
 const BUTTON_GHOST =
@@ -81,6 +100,9 @@ export default function Landing({ onStart }) {
             </a>
             <a href="#how-it-works" className="hover:text-brand">
               How it works
+            </a>
+            <a href="#faq" className="hover:text-brand">
+              FAQ
             </a>
           </div>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
@@ -238,6 +260,26 @@ export default function Landing({ onStart }) {
               </li>
             ))}
           </ol>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="mx-auto max-w-3xl px-4 pb-16 sm:px-6">
+          <h2 className="text-center text-2xl font-bold sm:text-3xl">
+            Frequently asked questions
+          </h2>
+          <dl className="mt-10 space-y-4">
+            {FAQS.map((f) => (
+              <div
+                key={f.q}
+                className="rounded-2xl bg-surface p-6 shadow-sm ring-1 ring-line"
+              >
+                <dt className="font-semibold">{f.q}</dt>
+                <dd className="mt-2 text-sm leading-relaxed text-ink-soft">
+                  {f.a}
+                </dd>
+              </div>
+            ))}
+          </dl>
         </section>
 
         {/* Closing call to action */}

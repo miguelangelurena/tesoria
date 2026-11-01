@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import path from 'path';
@@ -305,7 +306,7 @@ async function checkCode(email, purpose, code) {
     await client.query('COMMIT');
     return ok;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => { });
     throw err;
   } finally {
     client.release();
@@ -350,7 +351,52 @@ app.use(helmet({
 }));
 app.use(express.json({ limit: '10kb' }));
 app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'client', 'dist')));
+app.use(compression());
+
+// ---------- SEO ----------
+// API and health responses must never be indexed. Use a header instead of a
+// robots.txt "Disallow: /api": Googlebot blocks XHR/fetch to disallowed URLs
+// while rendering, which would break the app's /api/me call and make it index
+// the error screen instead of the landing page.
+app.use(['/api', '/healthz'], (_req, res, next) => {
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+  next();
+});
+
+const SITE_ORIGIN = new URL(SITE_URL).origin;
+// Only the real production site should be crawled; staging stays out of search.
+const ALLOW_INDEXING = IS_PROD && !process.env.DISALLOW_INDEXING;
+
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').set('Cache-Control', 'public, max-age=3600');
+  if (!ALLOW_INDEXING) return res.send('User-agent: *\nDisallow: /\n');
+  res.send(`User-agent: *\nAllow: /\n\nSitemap: ${SITE_ORIGIN}/sitemap.xml\n`);
+});
+
+app.get('/sitemap.xml', (_req, res) => {
+  if (!ALLOW_INDEXING) return res.status(404).end();
+  res.type('application/xml').set('Cache-Control', 'public, max-age=3600');
+  res.send(
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    `  <url><loc>${SITE_ORIGIN}/</loc><changefreq>monthly</changefreq><priority>1.0</priority></url>\n` +
+    '</urlset>\n'
+  );
+});
+
+// Static files: Vite fingerprints everything under /assets, so it can be cached
+// for a year; index.html and the rest must be revalidated.
+app.use(express.static(path.join(__dirname, 'client', 'dist'), {
+  setHeaders(res, filePath) {
+    if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  },
+}));
 
 // Render readiness: report only availability, never configuration details.
 // A failed database ping returns 503 so traffic isn't routed to a broken instance.
@@ -796,7 +842,7 @@ app.post('/api/months/:period/copy-previous', auth, periodParam, async (req, res
     await client.query('COMMIT');
     res.status(201).json({ income: incomeCopied ? from.income : to.income, incomeCopied, copied });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => { });
     throw err;
   } finally {
     client.release();

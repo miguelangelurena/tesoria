@@ -2,18 +2,129 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="Tesoria: a monthly 50/30/20 budget with real-time charts." />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+
+    <!-- Primary SEO -->
+    <title>Tesoria – Free 50/30/20 Budget Planner &amp; Tracker</title>
+    <meta
+      name="description"
+      content="Free monthly budget planner built on the 50/30/20 rule. Enter your income, log expenses and track needs, wants and savings with live charts."
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="author" content="Miguel U." />
+    <link rel="canonical" href="__SITE_URL__/" />
     <meta name="theme-color" content="#161f2b" />
-    <title>Tesoria · 50/30/20 Budget</title>
+
+    <!-- Open Graph (Facebook, WhatsApp, LinkedIn, Slack, Discord) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Tesoria" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="__SITE_URL__/" />
+    <meta
+      property="og:title"
+      content="Tesoria – Free 50/30/20 Budget Planner &amp; Tracker"
+    />
+    <meta
+      property="og:description"
+      content="Split your income with the 50/30/20 rule and follow your needs, wants and savings with live charts. Free to use."
+    />
+    <meta property="og:image" content="__SITE_URL__/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Tesoria 50/30/20 budget planner showing needs, wants and savings progress bars"
+    />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="Tesoria – Free 50/30/20 Budget Planner &amp; Tracker"
+    />
+    <meta
+      name="twitter:description"
+      content="Split your income with the 50/30/20 rule and follow your needs, wants and savings with live charts. Free to use."
+    />
+    <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
+    <meta
+      name="twitter:image:alt"
+      content="Tesoria 50/30/20 budget planner showing needs, wants and savings progress bars"
+    />
+
+    <!-- Icons and manifest -->
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Structured data (JSON-LD) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "__SITE_URL__/#website",
+            "url": "__SITE_URL__/",
+            "name": "Tesoria",
+            "description": "A free monthly budget planner built on the 50/30/20 rule.",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "__SITE_URL__/#app",
+            "name": "Tesoria",
+            "url": "__SITE_URL__/",
+            "image": "__SITE_URL__/og-image.png",
+            "description": "Enter your monthly income, log your expenses and track needs, wants and savings against the 50/30/20 rule with live charts. Export your last 12 months to CSV.",
+            "applicationCategory": "FinanceApplication",
+            "operatingSystem": "Any (web browser)",
+            "browserRequirements": "Requires JavaScript",
+            "isAccessibleForFree": true,
+            "inLanguage": "en",
+            "author": { "@type": "Person", "name": "Miguel U." },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "isPartOf": { "@id": "__SITE_URL__/#website" }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Crawler / no-JS fallback. React replaces this as soon as it mounts. -->
+      <main class="mx-auto max-w-2xl px-6 py-16 text-center">
+        <img
+          src="/icon-192.png"
+          alt="Tesoria logo"
+          width="96"
+          height="96"
+          class="mx-auto"
+        />
+        <h1 class="mt-6 text-3xl font-bold">
+          Tesoria: free 50/30/20 budget planner
+        </h1>
+        <p class="mt-4 text-base">
+          Tesoria splits your monthly income with the 50/30/20 rule (50% needs,
+          30% wants, 20% savings and debt) and shows your progress in live
+          charts. Log your expenses, compare each month with your targets and
+          export your last 12 months to CSV. Free to use.
+        </p>
+        <noscript>
+          <p class="mt-4 text-sm">Tesoria needs JavaScript to run.</p>
+        </noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -1,8 +1,14 @@
 {
-  "name": "Tesoria",
+  "name": "Tesoria – 50/30/20 Budget Planner",
   "short_name": "Tesoria",
+  "description": "Free monthly budget planner built on the 50/30/20 rule.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
+  "lang": "en",
+  "dir": "ltr",
   "display": "standalone",
+  "categories": ["finance", "productivity"],
   "background_color": "#f5f6f9",
   "theme_color": "#161f2b",
   "icons": [
