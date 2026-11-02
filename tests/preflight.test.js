@@ -9,6 +9,11 @@ const good = {
   JWT_SECRET: 'a'.repeat(40),
   BREVO_API_KEY: 'test-placeholder-not-a-key',
   MAIL_FROM_EMAIL: 'mailer@example.com',
+  LEGAL_OPERATOR_NAME: 'Test Operator',
+  LEGAL_OPERATOR_COUNTRY: 'Test Country',
+  LEGAL_OPERATOR_ADDRESS: 'Test postal address',
+  PRIVACY_CONTACT_EMAIL: 'privacy@example.com',
+  PRIVACY_OPERATIONS_NOTE: 'Test-only operational details.',
 };
 const check = (env, buildExists = true) => deploymentErrors(env, { buildExists, nodeVersion: '22.16.0' });
 
@@ -34,4 +39,10 @@ test('checks pooled URL first when configured', () => {
 });
 test('development startup does not require deployment-only variables', () => {
   assert.deepEqual(check({ NODE_ENV: 'development' }, false), []);
+});
+
+test('production requires a public operator and privacy operations disclosure', () => {
+  for (const key of ['LEGAL_OPERATOR_NAME', 'LEGAL_OPERATOR_COUNTRY', 'LEGAL_OPERATOR_ADDRESS', 'PRIVACY_CONTACT_EMAIL', 'PRIVACY_OPERATIONS_NOTE']) {
+    assert.ok(check({ ...good, [key]: '' }).some((error) => error.includes(key)));
+  }
 });

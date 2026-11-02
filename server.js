@@ -11,10 +11,16 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { parseMoney, isAllowedMutation, passwordError, loginAttemptKey, isValidSessionId } from './security.js';
+import { registerPrivacyRoutes } from './privacy.js';
+import { publicLegalInfo, legalConfigurationErrors } from './legal-config.js';
+import { LEGAL_VERSION } from './client/src/legal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
+if (IS_PROD && legalConfigurationErrors(process.env).length) {
+  throw new Error(legalConfigurationErrors(process.env).join('; '));
+}
 const DATABASE_URL = process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL;
 
 if (!DATABASE_URL) throw new Error('DATABASE_URL is not set');
@@ -150,7 +156,7 @@ async function sendCode(email, code, purpose) {
   }
 
   if (!res.ok) {
-    console.error('Brevo error:', res.status, await res.text().catch(() => ''));
+    console.error('Brevo request failed with status:', res.status);
     throw expose('We could not send the email. Please try again in a moment.');
   }
 }
@@ -168,6 +174,9 @@ async function initDb() {
     // Existing accounts (created before email verification) stay verified
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT true`,
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS legal_version TEXT`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS legal_accepted_at TIMESTAMPTZ`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_consented_at TIMESTAMPTZ`,
     `CREATE TABLE IF NOT EXISTS months (
       user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
       period TEXT NOT NULL,
@@ -360,6 +369,7 @@ app.use(compression());
 // the error screen instead of the landing page.
 app.use(['/api', '/healthz'], (_req, res, next) => {
   res.set('X-Robots-Tag', 'noindex, nofollow');
+  res.set('Cache-Control', 'no-store');
   next();
 });
 
@@ -397,6 +407,13 @@ app.use(express.static(path.join(__dirname, 'client', 'dist'), {
     }
   },
 }));
+
+app.get(['/privacy', '/terms'], (_req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'client', 'dist', 'index.html'));
+});
+
+app.get('/api/legal', (_req, res) => res.json(publicLegalInfo(process.env)));
 
 // Render readiness: report only availability, never configuration details.
 // A failed database ping returns 503 so traffic isn't routed to a broken instance.
@@ -547,6 +564,9 @@ app.use(['/api/auth/resend', '/api/auth/forgot'], codeLimiter);
 
 // Creates an unverified account and emails a verification code
 app.post('/api/auth/register', async (req, res) => {
+  if (req.body?.legalVersion !== LEGAL_VERSION || req.body?.privacyConsent !== true) {
+    return res.status(400).json({ error: 'Read and accept the current Terms and Privacy Notice before creating an account.' });
+  }
   const username = clean(req.body.username).toLowerCase();
   const email = clean(req.body.email).toLowerCase();
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -571,8 +591,8 @@ app.post('/api/auth/register', async (req, res) => {
   const hash = await bcrypt.hash(password, 10);
   try {
     await pool.query(
-      'INSERT INTO users (username, email, email_verified, password_hash) VALUES ($1, $2, false, $3)',
-      [username, email, hash]
+      'INSERT INTO users (username, email, email_verified, password_hash, legal_version, legal_accepted_at, privacy_consented_at) VALUES ($1, $2, false, $3, $4, now(), now())',
+      [username, email, hash, LEGAL_VERSION]
     );
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Username or email already in use' });
@@ -718,6 +738,8 @@ const usernameLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many attempts. Try again in 15 minutes.' },
 });
+
+registerPrivacyRoutes(app, { pool, auth, limiter: usernameLimiter, secret: JWT_SECRET, isProduction: IS_PROD });
 
 app.put('/api/me/username', usernameLimiter, auth, async (req, res) => {
   const username = clean(req.body.username).toLowerCase();

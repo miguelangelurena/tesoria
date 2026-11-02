@@ -26,3 +26,13 @@ services:
         sync: false
       - key: MAIL_FROM_NAME
         value: Tesoria
+      - key: LEGAL_OPERATOR_NAME
+        sync: false
+      - key: LEGAL_OPERATOR_COUNTRY
+        sync: false
+      - key: LEGAL_OPERATOR_ADDRESS
+        sync: false
+      - key: PRIVACY_CONTACT_EMAIL
+        value: anguelmiguel31@gmail.com
+      - key: PRIVACY_OPERATIONS_NOTE
+        sync: false

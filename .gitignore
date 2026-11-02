@@ -6,3 +6,4 @@ client/dist/
 !.env.example
 *.db
 *.log
+.npm-cache/

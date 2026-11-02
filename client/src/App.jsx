@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { api } from "./api";
 import Landing from "./components/Landing";
 import Login from "./components/Login";
+import LegalPage from "./components/LegalPage";
 
 // The dashboard pulls in the charting library (the heaviest dependency).
 // Loading it on demand keeps the public landing page, the one page search
@@ -21,6 +22,7 @@ function PageLoader() {
 }
 
 export default function App() {
+  const legalPath = ['/privacy', '/terms'].includes(window.location.pathname);
   // undefined = loading, null = signed out, object = signed in
   const [user, setUser] = useState(undefined);
   // Signed-out screens: the landing page, or the auth form opened at a given view
@@ -34,6 +36,7 @@ export default function App() {
 
   // Session check. Only a 401 means "signed out"; any other failure means "unknown".
   useEffect(() => {
+    if (legalPath) return;
     let cancelled = false;
     api
       .me()
@@ -48,20 +51,22 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, legalPath]);
 
   // After 4 s of loading, explain the wait (a cold server can take up to a minute)
   useEffect(() => {
-    if (user !== undefined || bootError) return;
+    if (legalPath || user !== undefined || bootError) return;
     const t = setTimeout(() => setSlow(true), 4000);
     return () => clearTimeout(t);
-  }, [user, bootError, attempt]);
+  }, [user, bootError, attempt, legalPath]);
 
   function retry() {
     setBootError("");
     setSlow(false);
     setAttempt((a) => a + 1);
   }
+
+  if (legalPath) return <LegalPage terms={window.location.pathname === '/terms'} />;
 
   if (bootError) {
     return (
@@ -79,7 +84,7 @@ export default function App() {
             {bootError}
           </p>
           <p className="mt-1 text-sm text-muted">
-            This is a connection problem. Your account and data are safe.
+            We could not check your session. Please try again when the service is available.
           </p>
           <button
             type="button"

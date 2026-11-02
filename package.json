@@ -7,9 +7,9 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "npm ci --include=dev --prefix client && npm run build --prefix client",
+    "build": "npm ci --include=dev --prefix client && node scripts/third-party-notices.mjs && npm run build --prefix client",
     "start": "node scripts/preflight.mjs && node server.js",
-    "test": "node --test tests/security.test.js tests/staging-smoke.test.js tests/preflight.test.js",
+    "test": "node --test tests/security.test.js tests/staging-smoke.test.js tests/preflight.test.js tests/privacy.test.js",
     "test:integration": "node --test tests/auth.integration.test.js",
     "test:staging": "node scripts/staging-smoke.mjs",
     "test:preflight": "node --test tests/preflight.test.js"

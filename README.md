@@ -154,6 +154,16 @@ All budget routes require a valid session cookie.
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
+## Privacy and legal configuration (November 2026)
+
+See [LEGAL_RISK_REVIEW.md](LEGAL_RISK_REVIEW.md) for findings, implemented mitigations and remaining operator decisions. Public `/privacy` and `/terms` pages are available in Spanish and English without signing in. New registration requires the current legal version and explicit data-processing authorization; existing accounts are not assigned acceptance retroactively.
+
+Production now requires `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_COUNTRY`, `LEGAL_OPERATOR_ADDRESS`, `PRIVACY_CONTACT_EMAIL` and `PRIVACY_OPERATIONS_NOTE`. These values are public. Set them **before deployment**; otherwise both preflight and direct production startup fail. The operations note must describe actual providers/regions, transfers and log/backup retention. Do not invent these details or put secrets in that text. See `.env.example`.
+
+Account provides `GET /api/me/data` (personal JSON export) and `DELETE /api/me` (current password plus confirmation `DELETE`, protected by the existing origin/header guard). Deletion removes the active database account, associated codes and account login counter, with cascades for budget records and all sessions. Provider logs, backups, delivered emails and user exports require separate handling.
+
+`npm ci && npm run build` preserves runtime dependency notices in `client/public/THIRD_PARTY_NOTICES.txt` and includes them in the served build. The nested `tesoria/` directory is an older copy and does not include these changes; deploy from this repository root.
+
 ---
 
 Coded by **Miguel U.**

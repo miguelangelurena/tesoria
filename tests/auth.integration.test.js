@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { loginAttemptKey } from '../security.js';
+import { LEGAL_VERSION } from '../client/src/legal.js';
 
 const DB_URL = process.env.TESORIA_TEST_DATABASE_URL;
 const REQUIRED_CONFIRMATION = 'I_UNDERSTAND_THIS_USES_A_TEST_DB';
@@ -158,9 +159,11 @@ test('full authentication lifecycle on an explicitly approved isolated PostgreSQ
 
       await t.test('new password requirements, registration, and email verification', async () => {
         await requireStatus(base, 'POST', '/api/auth/register', 400,
-          { body: { username: usernameA, email: emailA, password: 'shortpass123' } });
-        await requireStatus(base, 'POST', '/api/auth/register', 201,
           { body: { username: usernameA, email: emailA, password: passwordA } });
+        await requireStatus(base, 'POST', '/api/auth/register', 400,
+          { body: { username: usernameA, email: emailA, password: 'shortpass123', legalVersion: LEGAL_VERSION, privacyConsent: true } });
+        await requireStatus(base, 'POST', '/api/auth/register', 201,
+          { body: { username: usernameA, email: emailA, password: passwordA, legalVersion: LEGAL_VERSION, privacyConsent: true } });
         await seedKnownCode(pool, emailA, 'verify', '123456', tokenSecret);
         const verify = await requireStatus(base, 'POST', '/api/auth/verify', 200,
           { body: { email: emailA, code: '123456' } });
@@ -228,7 +231,7 @@ test('full authentication lifecycle on an explicitly approved isolated PostgreSQ
 
       await t.test('legacy short password remains usable and another account can sign in', async () => {
         await requireStatus(base, 'POST', '/api/auth/register', 201,
-          { body: { username: usernameB, email: emailB, password: passwordB } });
+          { body: { username: usernameB, email: emailB, password: passwordB, legalVersion: LEGAL_VERSION, privacyConsent: true } });
         await seedKnownCode(pool, emailB, 'verify', '324514', tokenSecret);
         await requireStatus(base, 'POST', '/api/auth/verify', 200,
           { body: { email: emailB, code: '324514' } });
@@ -260,6 +263,41 @@ test('full authentication lifecycle on an explicitly approved isolated PostgreSQ
         await pool.query("UPDATE login_attempts SET window_started_at = now() - interval '16 minutes' WHERE identity_key = $1", [key]);
         await requireStatus(base, 'POST', '/api/auth/login', 200,
           { body: { identifier: usernameA, password: passwordANew } });
+      });
+
+      await t.test('personal export and account deletion are scoped and revoke all devices', async () => {
+        const first = await requireStatus(base, 'POST', '/api/auth/login', 200,
+          { body: { identifier: usernameA, password: passwordANew } });
+        const second = await requireStatus(base, 'POST', '/api/auth/login', 200,
+          { body: { identifier: usernameA, password: passwordANew } });
+        const firstCookie = sessionCookie(first.res);
+        const secondCookie = sessionCookie(second.res);
+        const { rows: users } = await pool.query('SELECT id FROM users WHERE email = $1', [emailA]);
+        const uid = users[0].id;
+        const period = new Date().toISOString().slice(0, 7);
+        await pool.query('INSERT INTO months (user_id, period, income) VALUES ($1, $2, 100) ON CONFLICT DO NOTHING', [uid, period]);
+        await pool.query("INSERT INTO transactions (user_id, period, bucket, category, description, amount) VALUES ($1, $2, 'needs', 'test', 'Private test record', 10)", [uid, period]);
+        await seedKnownCode(pool, emailA, 'reset', '121212', tokenSecret);
+        await requireStatus(base, 'GET', '/api/me/data', 401);
+        const exported = await requireStatus(base, 'GET', '/api/me/data', 200, { cookie: firstCookie });
+        assert.equal(exported.data.account.email, emailA);
+        assert.equal(exported.data.account.legal_version, LEGAL_VERSION);
+        assert.ok(exported.data.account.privacy_consented_at);
+        assert.equal(exported.data.transactions.length, 1);
+        assert.ok(!JSON.stringify(exported.data).includes('password_hash'));
+        await requireStatus(base, 'DELETE', '/api/me', 403,
+          { cookie: firstCookie, body: { password: 'wrong password', confirmation: 'DELETE' } });
+        await requireStatus(base, 'DELETE', '/api/me', 403,
+          { cookie: firstCookie, body: { password: passwordANew, confirmation: 'DELETE' }, origin: 'https://attacker.invalid' });
+        await requireStatus(base, 'DELETE', '/api/me', 200,
+          { cookie: firstCookie, body: { password: passwordANew, confirmation: 'DELETE' } });
+        await requireStatus(base, 'GET', '/api/me', 401, { cookie: firstCookie });
+        await requireStatus(base, 'GET', '/api/me', 401, { cookie: secondCookie });
+        for (const table of ['months', 'transactions', 'user_sessions']) {
+          assert.equal((await pool.query(`SELECT 1 FROM ${table} WHERE user_id = $1`, [uid])).rowCount, 0);
+        }
+        assert.equal((await pool.query('SELECT 1 FROM email_codes WHERE email = $1', [emailA])).rowCount, 0);
+        assert.equal((await pool.query('SELECT 1 FROM users WHERE email = $1', [emailB])).rowCount, 1);
       });
     } finally {
       await stopServer(running);

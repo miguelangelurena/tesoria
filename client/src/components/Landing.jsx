@@ -156,7 +156,7 @@ export default function Landing({ onStart }) {
               </button>
             </div>
             <p className="mt-4 text-sm text-muted">
-              Free. Your data is kept for 12 months.
+              Free. Budget history covers the current month and previous eleven months.
             </p>
           </div>
 
@@ -289,7 +289,7 @@ export default function Landing({ onStart }) {
               Start your first budget today
             </h2>
             <p className="mx-auto mt-3 max-w-lg text-white/70">
-              Create an account in under a minute and see your 50/30/20 plan for
+              Create an account and see your 50/30/20 plan for
               this month.
             </p>
             <button

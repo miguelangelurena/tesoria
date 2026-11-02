@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import Brand from './Brand';
 import Footer from './Footer';
+import { LEGAL_VERSION } from '../legal';
 
 const VIEW = { LOGIN: 'login', REGISTER: 'register', VERIFY: 'verify', FORGOT: 'forgot', RESET: 'reset' };
 const RESEND_SECONDS = 60;
@@ -51,6 +52,8 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
   const [view, setView] = useState(initialView);
   const [form, setForm] = useState(() => ({ identifier: readLastLogin(), username: '', email: '', password: '', code: '' }));
   const [remember, setRemember] = useState(true);
+  const [accepted, setAccepted] = useState(false);
+  const [privacyConsent, setPrivacyConsent] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
@@ -122,8 +125,9 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
       });
     }
     if (view === VIEW.REGISTER) {
+      if (!accepted || !privacyConsent) { setError('Read the legal notices, agree to the Terms and authorize the described data processing first.'); return; }
       return run(async () => {
-        const r = await api.register(form.username, form.email, form.password);
+        const r = await api.register(form.username, form.email, form.password, LEGAL_VERSION, privacyConsent);
         setForm((f) => ({ ...f, email: r.email, code: '' }));
         show(VIEW.VERIFY, `We sent a 6-digit code to ${r.email}`);
         setCooldown(RESEND_SECONDS);
@@ -182,6 +186,9 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
                     className="h-4 w-4 accent-brand" />
                   Keep me signed in on this device
                 </label>
+                <button type="button" className="text-xs text-muted underline" onClick={() => {
+                  saveLastLogin(''); setForm((f) => ({ ...f, identifier: '' }));
+                }}>Forget the saved username or email on this device</button>
               </>
             )}
 
@@ -199,6 +206,15 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
                   <input className={input} type="password" value={form.password} onChange={set('password')}
                     autoComplete="new-password" required minLength={15} />
                 </Field>
+                <p className="text-xs text-muted">Budget entries cover the current month and previous eleven months. Export before older entries are deleted. Account details remain until you delete your account.</p>
+                <label className="flex items-start gap-2 text-sm text-ink-soft">
+                  <input type="checkbox" required checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-1 accent-brand" />
+                  <span>I agree to the <a href="/terms" target="_blank" rel="noopener" className="underline">Terms of use / Condiciones de uso</a> (version {LEGAL_VERSION}).</span>
+                </label>
+                <label className="flex items-start gap-2 text-sm text-ink-soft">
+                  <input type="checkbox" required checked={privacyConsent} onChange={(e) => setPrivacyConsent(e.target.checked)} className="mt-1 accent-brand" />
+                  <span>I authorize the processing of my account and budget data to provide and secure Tesoria as described in the <a href="/privacy" target="_blank" rel="noopener" className="underline">Privacy notice / Aviso de privacidad</a>, including use of the disclosed hosting, database and email providers. I can withdraw this authorization by contacting the operator or deleting my account. / Autorizo el tratamiento de mis datos de cuenta y presupuesto para prestar y proteger Tesoria según el aviso de privacidad y los proveedores allí indicados. Puedo retirar la autorización contactando al responsable o eliminando mi cuenta.</span>
+                </label>
               </>
             )}
 
@@ -283,7 +299,7 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
           </div>
         </div>
         <p className="mt-4 text-center text-xs text-muted">
-          Your data is kept for 12 months from the current month.
+          Budget history: current month and previous eleven months. Account retention is explained in the Privacy notice.
         </p>
       </div>
     </main>

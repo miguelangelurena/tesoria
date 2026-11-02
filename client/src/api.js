@@ -40,7 +40,9 @@ async function request(method, url, body, { timeout = 20000 } = {}) {
 export const api = {
   // Longer timeout: a sleeping free-tier server can take close to a minute to wake up
   me: () => request('GET', '/api/me', undefined, { timeout: 60000 }),
-  register: (username, email, password) => request('POST', '/api/auth/register', { username, email, password }),
+  register: (username, email, password, legalVersion, privacyConsent) => request('POST', '/api/auth/register', { username, email, password, legalVersion, privacyConsent }),
+  legal: () => request('GET', '/api/legal'),
+  deleteAccount: (password, confirmation) => request('DELETE', '/api/me', { password, confirmation }),
   verify: (email, code) => request('POST', '/api/auth/verify', { email, code }),
   resend: (email) => request('POST', '/api/auth/resend', { email }),
   // remember = keep the session for 30 days; otherwise it ends when the browser closes

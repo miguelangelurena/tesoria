@@ -472,6 +472,7 @@ export default function Dashboard({ user, onLogout, onUsernameChange }) {
       {accountOpen && (
         <AccountModal
           username={user.username}
+          onDeleted={onLogout}
           onChanged={onUsernameChange}
           onClose={() => setAccountOpen(false)}
         />
