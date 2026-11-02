@@ -2,12 +2,10 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { legalConfigurationErrors } from '../legal-config.js';
 
 export function deploymentErrors(env, { buildExists = existsSync(resolve('client/dist/index.html')), nodeVersion = process.versions.node } = {}) {
   if (env.NODE_ENV !== 'production') return [];
   const errors = [];
-  errors.push(...legalConfigurationErrors(env));
   const has = key => typeof env[key] === 'string' && env[key].trim() !== '';
   const add = (condition, description) => { if (!condition) errors.push(description); };
 

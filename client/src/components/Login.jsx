@@ -54,10 +54,22 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
   const [remember, setRemember] = useState(true);
   const [accepted, setAccepted] = useState(false);
   const [privacyConsent, setPrivacyConsent] = useState(false);
+  const [registrationOpen, setRegistrationOpen] = useState(null);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (view !== VIEW.REGISTER) return;
+    let active = true;
+    api.legal().then((details) => {
+      if (active) setRegistrationOpen(details.registrationOpen === true);
+    }).catch(() => {
+      if (active) setRegistrationOpen(false);
+    });
+    return () => { active = false; };
+  }, [view]);
 
   // Countdown for "resend code"
   useEffect(() => {
@@ -125,6 +137,7 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
       });
     }
     if (view === VIEW.REGISTER) {
+      if (registrationOpen !== true) return;
       if (!accepted || !privacyConsent) { setError('Read the legal notices, agree to the Terms and authorize the described data processing first.'); return; }
       return run(async () => {
         const r = await api.register(form.username, form.email, form.password, LEGAL_VERSION, privacyConsent);
@@ -192,7 +205,12 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
               </>
             )}
 
-            {view === VIEW.REGISTER && (
+            {view === VIEW.REGISTER && registrationOpen !== true && (
+              <p role="status" className="text-sm text-ink-soft">{registrationOpen === null
+                ? 'Checking registration availability... / Comprobando disponibilidad...'
+                : 'New registrations are temporarily unavailable. Existing users can still sign in. / Los nuevos registros están temporalmente suspendidos; las cuentas existentes pueden iniciar sesión.'}</p>
+            )}
+            {view === VIEW.REGISTER && registrationOpen === true && (
               <>
                 <Field label="Username">
                   <input className={input} value={form.username} onChange={set('username')}
@@ -250,7 +268,7 @@ export default function Login({ onLogin, onBack, initialView = VIEW.LOGIN }) {
             {info && <p className="text-sm text-growth">{info}</p>}
             {error && <p role="alert" className="text-sm text-brand-dark">{error}</p>}
 
-            <button disabled={loading}
+            <button disabled={loading || (view === VIEW.REGISTER && registrationOpen !== true)}
               className="cursor-pointer w-full rounded-lg bg-brand py-2.5 font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
               {loading ? 'Please wait...' : SUBMIT_LABELS[view]}
             </button>

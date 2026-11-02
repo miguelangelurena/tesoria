@@ -2,12 +2,26 @@ import { LEGAL_VERSION } from './client/src/legal.js';
 
 export function publicLegalInfo(env) {
   return {
+    registrationOpen: registrationIsOpen(env),
     version: LEGAL_VERSION,
     operator: env.LEGAL_OPERATOR_NAME?.trim() || '',
     country: env.LEGAL_OPERATOR_COUNTRY?.trim() || '',
     address: env.LEGAL_OPERATOR_ADDRESS?.trim() || '',
     email: env.PRIVACY_CONTACT_EMAIL?.trim() || '',
     operations: env.PRIVACY_OPERATIONS_NOTE?.trim() || '',
+  };
+}
+
+export function registrationIsOpen(env) {
+  return env.NODE_ENV !== 'production' || legalConfigurationErrors(env).length === 0;
+}
+
+export function requireRegistrationOpen(env) {
+  return (_req, res, next) => {
+    if (!registrationIsOpen(env)) {
+      return res.status(503).json({ error: 'New registrations are temporarily unavailable. Existing users can still sign in. / Los nuevos registros están temporalmente suspendidos; las cuentas existentes pueden iniciar sesión.' });
+    }
+    next();
   };
 }
 

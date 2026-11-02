@@ -12,14 +12,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { parseMoney, isAllowedMutation, passwordError, loginAttemptKey, isValidSessionId } from './security.js';
 import { registerPrivacyRoutes } from './privacy.js';
-import { publicLegalInfo, legalConfigurationErrors } from './legal-config.js';
+import { publicLegalInfo, legalConfigurationErrors, requireRegistrationOpen } from './legal-config.js';
 import { LEGAL_VERSION } from './client/src/legal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 if (IS_PROD && legalConfigurationErrors(process.env).length) {
-  throw new Error(legalConfigurationErrors(process.env).join('; '));
+  console.warn('New registrations disabled until legal notices are complete. Existing accounts remain available.');
+  for (const error of legalConfigurationErrors(process.env)) console.warn(`- ${error}`);
 }
 const DATABASE_URL = process.env.DATABASE_URL_POOLED || process.env.DATABASE_URL;
 
@@ -563,7 +564,7 @@ app.use(['/api/auth/resend', '/api/auth/forgot'], codeLimiter);
 
 
 // Creates an unverified account and emails a verification code
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', requireRegistrationOpen(process.env), async (req, res) => {
   if (req.body?.legalVersion !== LEGAL_VERSION || req.body?.privacyConsent !== true) {
     return res.status(400).json({ error: 'Read and accept the current Terms and Privacy Notice before creating an account.' });
   }

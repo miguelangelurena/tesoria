@@ -41,8 +41,11 @@ test('development startup does not require deployment-only variables', () => {
   assert.deepEqual(check({ NODE_ENV: 'development' }, false), []);
 });
 
-test('production requires a public operator and privacy operations disclosure', () => {
+test('missing legal details do not prevent production startup for existing accounts', () => {
   for (const key of ['LEGAL_OPERATOR_NAME', 'LEGAL_OPERATOR_COUNTRY', 'LEGAL_OPERATOR_ADDRESS', 'PRIVACY_CONTACT_EMAIL', 'PRIVACY_OPERATIONS_NOTE']) {
-    assert.ok(check({ ...good, [key]: '' }).some((error) => error.includes(key)));
+    assert.deepEqual(check({ ...good, [key]: '' }), []);
   }
+  const minimal = { ...good };
+  for (const key of Object.keys(minimal).filter((key) => key.startsWith('LEGAL_') || key.startsWith('PRIVACY_'))) delete minimal[key];
+  assert.deepEqual(check(minimal), []);
 });

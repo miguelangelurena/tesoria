@@ -36,7 +36,7 @@ Configurar en el entorno del servidor:
 - `PRIVACY_CONTACT_EMAIL`: `anguelmiguel31@gmail.com`, confirmado por el responsable como contacto público. Configurado en `.env.example` y en el Blueprint de Render. En un servicio Render existente debe cargarse también en sus variables de entorno; este cambio local no modifica el servicio desplegado. El remitente de Brevo se configura por separado mediante `MAIL_FROM_EMAIL`.
 - `PRIVACY_OPERATIONS_NOTE`: texto público con entidades proveedoras, regiones efectivas, transferencias y garantías aplicables, bases del tratamiento cuando correspondan y plazos/procedimientos reales de conservación de logs y backups. Redactarlo en español y, si procede, inglés. No incluir contraseñas ni credenciales.
 
-La comprobación de arranque rechaza producción si falta esa configuración. Se comprueba presencia y formato; no puede comprobar que los datos sean ciertos ni que los contratos sean suficientes. Para un servicio existente, cargar estos valores **antes** de desplegar la versión para evitar que falle el arranque.
+Si falta esa configuración en producción, el servidor arranca con una advertencia y suspende solamente nuevos registros (HTTP 503 y aviso en el formulario). Las cuentas existentes mantienen acceso, recuperación, exportación y eliminación. `/api/legal` informa `registrationOpen`. Se comprueba presencia y formato; no puede comprobar que los datos sean ciertos ni que los contratos sean suficientes. Completar los valores reales y reiniciar el servicio para habilitar nuevos registros. Este comportamiento reemplaza el bloqueo de arranque inicial que impedía desplegar el servicio.
 
 ## Acciones operativas pendientes
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { registerPrivacyRoutes } from '../privacy.js';
-import { publicLegalInfo } from '../legal-config.js';
+import { publicLegalInfo, requireRegistrationOpen, registrationIsOpen } from '../legal-config.js';
 
 async function fixture(t, { failure = false } = {}) {
   const queries = [];
@@ -98,5 +98,30 @@ test('public legal details expose an explicit allowlist and never environment se
   assert.equal(details.operator, 'Operator');
   assert.equal(details.email, '');
   assert.ok(!JSON.stringify(details).includes('private'));
-  assert.deepEqual(Object.keys(details).sort(), ['address', 'country', 'email', 'operations', 'operator', 'version']);
+  assert.deepEqual(Object.keys(details).sort(), ['address', 'country', 'email', 'operations', 'operator', 'registrationOpen', 'version']);
+});
+
+test('incomplete production legal notices block registration before account creation', () => {
+  const complete = {
+    NODE_ENV: 'production', LEGAL_OPERATOR_NAME: 'Operator', LEGAL_OPERATOR_COUNTRY: 'Country',
+    LEGAL_OPERATOR_ADDRESS: 'Contact address', PRIVACY_CONTACT_EMAIL: 'privacy@example.test',
+    PRIVACY_OPERATIONS_NOTE: 'Provider and retention details',
+  };
+  for (const key of ['LEGAL_OPERATOR_NAME', 'LEGAL_OPERATOR_COUNTRY', 'LEGAL_OPERATOR_ADDRESS', 'PRIVACY_CONTACT_EMAIL', 'PRIVACY_OPERATIONS_NOTE']) {
+    const env = { ...complete, [key]: '' };
+    let called = false;
+    let status;
+    const res = { status(value) { status = value; return this; }, json(body) { assert.match(body.error, /Existing users can still sign in/); } };
+    requireRegistrationOpen(env)({}, res, () => { called = true; });
+    assert.equal(status, 503);
+    assert.equal(called, false, 'must not reach account creation');
+    assert.equal(publicLegalInfo(env).registrationOpen, false);
+  }
+  assert.equal(registrationIsOpen({ NODE_ENV: 'production' }), false);
+  assert.equal(registrationIsOpen({ ...complete, PRIVACY_CONTACT_EMAIL: 'invalid' }), false);
+  assert.equal(registrationIsOpen({ NODE_ENV: 'development' }), true);
+  assert.equal(publicLegalInfo(complete).registrationOpen, true);
+  let called = false;
+  requireRegistrationOpen(complete)({}, {}, () => { called = true; });
+  assert.equal(called, true);
 });
